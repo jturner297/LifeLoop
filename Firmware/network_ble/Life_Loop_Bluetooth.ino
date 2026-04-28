@@ -126,7 +126,7 @@ void loop() {
     lastSendTime = now;
     
     char msg[64];
-    snprintf(msg, sizeof(msg), "heartbeat:%lu\n", now);
+    snprintf(msg, sizeof(msg), "heartbeat:%lu\n", 60);
     blePrint(msg);
   }
 }
