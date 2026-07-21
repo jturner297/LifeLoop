@@ -1,0 +1,235 @@
+import asyncio
+import math
+import subprocess
+import json
+import urllib.request
+import urllib.error
+import re
+from bleak import BleakScanner, BleakClient
+
+# The TX Characteristic UUID from the ESP32 code
+TX_CHARACTERISTIC_UUID = "6E400003-B5A3-F393-E0A9-E50E24DCCA9E"
+DEVICE_NAME = "Life Loop"
+
+# TODO: Insert your Google API Key here (same one from your working .ino)
+GOOGLE_API_KEY = "AIzaSyAS84PS_J66vu2SdNCqwz9P8mUhXLkzb40"
+
+# Track last known location for the API cost-saving logic
+last_lat = 0.0
+last_lon = 0.0
+
+
+def calculate_distance(lat1, lon1, lat2, lon2):
+    R = 6371000  # Radius of Earth in meters
+    phi1 = math.radians(lat1)
+    phi2 = math.radians(lat2)
+    delta_phi = math.radians(lat2 - lat1)
+    delta_lambda = math.radians(lon2 - lon1)
+
+    a = (
+        math.sin(delta_phi / 2.0) ** 2
+        + math.cos(phi1) * math.cos(phi2) * math.sin(delta_lambda / 2.0) ** 2
+    )
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+    return R * c
+
+
+def get_wifi_geolocation():
+    """
+    Scan nearby Wi-Fi networks and use Google's Geolocation API
+    to estimate the Raspberry Pi's location.
+    """
+
+    try:
+        # Scan Wi-Fi access points
+        cmd = ["nmcli", "-t", "-f", "BSSID,SIGNAL", "dev", "wifi"]
+
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+
+        if result.returncode != 0:
+            print("[NMCLI ERROR]")
+            print(result.stderr)
+            return 33.6407, -84.4775
+
+        print("\n========== NMCLI OUTPUT ==========")
+        print(result.stdout)
+
+        access_points = []
+
+        for line in result.stdout.strip().splitlines():
+            if not line:
+                continue
+
+            m = re.match(r"((?:[0-9A-Fa-f]{2}\\:){5}[0-9A-Fa-f]{2}):(\d+)", line)
+
+            if not m:
+                print(f"Couldn't parse: {line}")
+                continue
+
+            mac = m.group(1).replace("\\:", ":")
+            signal = int(m.group(2))
+
+            # Convert percentage to approximate RSSI
+            dbm = int(-30 - ((100 - signal) * 0.7))
+
+            access_points.append({"macAddress": mac, "signalStrength": dbm})
+
+        if not access_points:
+            print("[WARNING] No Wi-Fi access points detected.")
+            return 33.6407, -84.4775
+
+        print("\n========== ACCESS POINTS ==========")
+        print(json.dumps(access_points, indent=2))
+
+        access_points.sort(key=lambda x: x["signalStrength"], reverse=True)
+
+        payload = {"considerIp": True, "wifiAccessPoints": access_points[:10]}
+
+        print("\n========== GOOGLE REQUEST ==========")
+        print(json.dumps(payload, indent=2))
+
+        url = (
+            "https://www.googleapis.com/geolocation/v1/geolocate"
+            f"?key={GOOGLE_API_KEY}"
+        )
+
+        req = urllib.request.Request(
+            url,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+
+        try:
+            with urllib.request.urlopen(req, timeout=10) as response:
+
+                body = response.read().decode("utf-8")
+
+                print("\n========== GOOGLE RESPONSE ==========")
+                print(body)
+
+                res = json.loads(body)
+
+                lat = float(res["location"]["lat"])
+                lon = float(res["location"]["lng"])
+                accuracy = res.get("accuracy", "Unknown")
+
+                print(f"\n[LOCATION FOUND]")
+                print(f"Latitude : {lat}")
+                print(f"Longitude: {lon}")
+                print(f"Accuracy : {accuracy} meters")
+
+                return lat, lon
+
+        except urllib.error.HTTPError as e:
+            print("\n========== GOOGLE HTTP ERROR ==========")
+            print("Status:", e.code)
+            print(e.read().decode())
+
+        except urllib.error.URLError as e:
+            print("\n========== CONNECTION ERROR ==========")
+            print(e)
+
+    except Exception:
+        import traceback
+
+        traceback.print_exc()
+
+    print("\nUsing fallback coordinates.\n")
+    return 33.6407, -84.4775
+
+
+def get_google_address(lat, lon):
+    """
+    Reverse geocodes latitude and longitude into a readable street address using Google Maps.
+    """
+    url = f"https://maps.googleapis.com/maps/api/geocode/json?latlng={lat},{lon}&key={GOOGLE_API_KEY}"
+    try:
+        with urllib.request.urlopen(url) as response:
+            res_data = json.loads(response.read().decode("utf-8"))
+            if res_data["results"]:
+                return res_data["results"][0]["formatted_address"]
+    except Exception as e:
+        print(f"[GEOCODE ERROR]: {e}")
+    return "Address lookup failed"
+
+
+def notification_handler(sender, data):
+    global last_lat, last_lon
+
+    payload = data.decode("utf-8").strip()
+
+    try:
+        parts = payload.split("|")
+        bpm = float(parts[0].split(":")[1])
+        state = int(parts[1].split(":")[1])
+        lat = float(parts[2].split(":")[1])
+        lon = float(parts[3].split(":")[1])
+
+        location_source = "GPS"
+
+        # --- Indoor Hybrid Fallback Logic (Triggered when GPS is 0.0) ---
+        if lat == 0.0 or lon == 0.0:
+            location_source = "Wi-Fi Geolocation (Indoor)"
+            lat, lon = get_wifi_geolocation()
+
+        # --- UI Dashboard / Phone Simulator Output ---
+        print(
+            f"♥ BPM: {bpm:<6} | 📍 Loc: {lat:.5f}, {lon:.5f} ({location_source}) | ",
+            end="",
+        )
+
+        if state == 0:
+            print("Status: Normal")
+        elif state == 1:
+            print("Status: [!] FREE FALL DETECTED")
+        elif state == 2:
+            print("Status: [!!] IMPACT DETECTED")
+        elif state == 3:
+            print("\n=======================================================")
+            print("🚨 EMERGENCY PROTOCOL TRIGGERED: STATIONARY AFTER FALL 🚨")
+            print("       Dispatching alert to family network...")
+            print("=======================================================\n")
+
+        # --- GPS Optimization & Address Lookup Logic ---
+        if lat != 0.0 and lon != 0.0:
+            distance_moved = calculate_distance(last_lat, last_lon, lat, lon)
+
+            # If we moved more than 10 meters, fetch the new address
+            if distance_moved > 10.0 or last_lat == 0.0:
+                address = get_google_address(lat, lon)
+                print(f"\n[ADDRESS UPDATED] 🏠 {address}\n")
+                last_lat = lat
+                last_lon = lon
+
+    except Exception as e:
+        print(f"Error parsing data: {payload} -> {e}")
+
+
+async def run():
+    print(f"Scanning for {DEVICE_NAME}...")
+    devices = await BleakScanner.discover()
+
+    target_address = None
+    for d in devices:
+        if d.name == DEVICE_NAME:
+            target_address = d.address
+            print(f"Found Life Loop! MAC: {target_address}")
+            break
+
+    if not target_address:
+        print("Could not find the Life Loop wearable. Make sure it is powered on.")
+        return
+
+    print("Connecting...")
+    async with BleakClient(target_address) as client:
+        print(f"Connected: {client.is_connected}")
+        await client.start_notify(TX_CHARACTERISTIC_UUID, notification_handler)
+        print("Subscribed to data stream. Waiting for vitals...\n")
+
+        while True:
+            await asyncio.sleep(1.0)
+
+
+if __name__ == "__main__":
+    asyncio.run(run())
