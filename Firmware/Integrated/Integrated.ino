@@ -1,45 +1,26 @@
+#include <ArduinoBLE.h>
 #include <Wire.h>
-#include <Adafruit_Sensor.h>
-#include <Adafruit_MPU6050.h>
-#include <math.h>
+#include <LSM6DS3.h>          // Seeed Arduino LSM6DS3 library
 #include "MAX30105.h"
+#include "heartRate.h"
 #include <TinyGPS++.h>
-#include <BLEDevice.h>
-#include <BLEServer.h>
-#include <BLEUtils.h>
-#include <BLE2902.h>
-
-// ── Pin & Network Definitions ─────────────────────────────────────────────────
-#define I2C_SDA 21
-#define I2C_SCL 22
-#define GPS_RX  16
-#define GPS_TX  17
-#define LED_RED 4  
-#define LED_BLUE 5 
+#include <math.h>
 
 // ── BLE Definitions ───────────────────────────────────────────────────────────
 #define SERVICE_UUID           "6E400001-B5A3-F393-E0A9-E50E24DCCA9E"
 #define CHARACTERISTIC_UUID_TX "6E400003-B5A3-F393-E0A9-E50E24DCCA9E"
 
-BLEServer* pServer = nullptr;
-BLECharacteristic* pTxCharacteristic = nullptr;
-bool deviceConnected = false;
+BLEService lifeLoopService(SERVICE_UUID);
+BLECharacteristic txCharacteristic(CHARACTERISTIC_UUID_TX, BLENotify | BLERead, 128);
+
 unsigned long lastSendTime = 0;
 const unsigned long SEND_INTERVAL = 1000;
 
-class MyServerCallbacks : public BLEServerCallbacks {
-  void onConnect(BLEServer* pServer) override { deviceConnected = true; }
-  void onDisconnect(BLEServer* pServer) override { 
-    deviceConnected = false; 
-    pServer->getAdvertising()->start(); 
-  }
-};
-
 // ── Hardware Objects ──────────────────────────────────────────────────────────
-Adafruit_MPU6050 mpu;
+LSM6DS3 myIMU(I2C_MODE, 0x6A); // Onboard XIAO nRF52840 Sense IMU (Address 0x6A)
 MAX30105 particleSensor;
 TinyGPSPlus gps;
-HardwareSerial gpsSerial(2);
+// Hardware Serial1 on XIAO nRF52840: RX = D7 (P1.12), TX = D6 (P1.11)
 
 // ── Fall Detection Variables ──────────────────────────────────────────────────
 enum FallDetection { Normal, Free_Falling, Impact, Stationary };
@@ -140,45 +121,59 @@ float calculateDistance(float lat1, float lon1, float lat2, float lon2) {
 // ── Setup ─────────────────────────────────────────────────────────────────────
 void setup() {
   Serial.begin(115200);
-  Wire.begin(I2C_SDA, I2C_SCL);
-
+  
+  // 1. Initialize Onboard RGB LED (XIAO LEDs are Active-LOW: HIGH = OFF, LOW = ON)
   pinMode(LED_RED, OUTPUT);
+  pinMode(LED_GREEN, OUTPUT);
   pinMode(LED_BLUE, OUTPUT);
+  digitalWrite(LED_RED, HIGH);
+  digitalWrite(LED_GREEN, HIGH);
+  digitalWrite(LED_BLUE, HIGH);
 
-  // Init Sensors
-  if (!mpu.begin(0x68, &Wire)) Serial.println("MPU6050 Error!");
+  // 2. Initialize Primary I2C Bus (D4/SDA, D5/SCL)
+  Wire.begin();
+
+  // 3. Initialize Onboard LSM6DS3 IMU
+  if (myIMU.begin() != 0) {
+    Serial.println("LSM6DS3 IMU Error!");
+  }
+
+  // 4. Initialize External MAX30105 Heart Rate Sensor
   if (!particleSensor.begin(Wire, I2C_SPEED_FAST)) {
-    Serial.println("MAX30102 Error!");
+    Serial.println("MAX30105 Error!");
   } else {
     particleSensor.setup(60, 1, 2, 200, 411, 4096);
   }
 
-  // Init GPS
-  gpsSerial.begin(9600, SERIAL_8N1, GPS_RX, GPS_TX);
+  // 5. Initialize GPS UART (Serial1 on D7=RX, D6=TX)
+  Serial1.begin(9600);
 
-  // Init BLE
-  BLEDevice::init("Life Loop");
-  pServer = BLEDevice::createServer();
-  pServer->setCallbacks(new MyServerCallbacks());
-  BLEService* pService = pServer->createService(SERVICE_UUID);
-  pTxCharacteristic = pService->createCharacteristic(
-    CHARACTERISTIC_UUID_TX,
-    BLECharacteristic::PROPERTY_NOTIFY
-  );
-  pTxCharacteristic->addDescriptor(new BLE2902());
-  pService->start();
-  pServer->getAdvertising()->start();
+  // 6. Initialize ArduinoBLE Stack
+  if (!BLE.begin()) {
+    Serial.println("BLE Initialization Failed!");
+    while (1);
+  }
+
+  BLE.setLocalName("Life Loop");
+  BLE.setAdvertisedService(lifeLoopService);
+  lifeLoopService.addCharacteristic(txCharacteristic);
+  BLE.addService(lifeLoopService);
+
+  // Set initial empty value
+  txCharacteristic.writeValue("");
   
-  Serial.println("System Ready.");
+  BLE.advertise();
+  Serial.println("System Ready. BLE Advertising...");
 }
 
 // ── Main Loop ─────────────────────────────────────────────────────────────────
 void loop() {
+  BLEDevice central = BLE.central();
   unsigned long now = millis();
 
-  // 1. Process GPS Data (Non-Blocking)
-  while (gpsSerial.available() > 0) {
-    gps.encode(gpsSerial.read());
+  // 1. Process GPS Data (Non-Blocking via Hardware Serial1)
+  while (Serial1.available() > 0) {
+    gps.encode(Serial1.read());
   }
 
   // Check Location & Apply Optimization (Run every 30s)
@@ -204,7 +199,10 @@ void loop() {
         currentLon = newLon;
         lastCheckedLat = newLat;
         lastCheckedLon = newLon;
-        Serial.printf("[LOCATION UPDATED] Lat: %.6f, Lon: %.6f\n", currentLat, currentLon);
+        Serial.print("[LOCATION UPDATED] Lat: ");
+        Serial.print(currentLat, 6);
+        Serial.print(", Lon: ");
+        Serial.println(currentLon, 6);
       } else {
         Serial.println("[OPTIMIZATION] Stationary detected. Skipping redundant location update.");
       }
@@ -243,19 +241,22 @@ void loop() {
     lastFiltered = filtered;
   }
 
-  // 3. Process Fall Detection State Machine
-  // Only read the sensor and update state every 100ms
+  // 3. Process Fall Detection State Machine (100ms interval)
   if (now - lastMpuReadTime >= MPU_READ_INTERVAL) {
     lastMpuReadTime = now;
 
-    sensors_event_t a, g, temp;
-    mpu.getEvent(&a, &g, &temp);
-    float magValues = magnitude(a.acceleration.x, a.acceleration.y, a.acceleration.z);
+    // Read onboard IMU in Gs and convert to m/s^2 (1G = 9.80665 m/s^2) to match exact thresholds
+    float ax = myIMU.readFloatAccelX() * 9.80665f;
+    float ay = myIMU.readFloatAccelY() * 9.80665f;
+    float az = myIMU.readFloatAccelZ() * 9.80665f;
+    float magValues = magnitude(ax, ay, az);
 
     switch(fallState) {
       case Normal:
-        digitalWrite(LED_BLUE, HIGH);
-        digitalWrite(LED_RED, LOW);
+        // Blue ON (LOW), Red OFF (HIGH), Green OFF (HIGH)
+        digitalWrite(LED_BLUE, LOW);
+        digitalWrite(LED_RED, HIGH);
+        digitalWrite(LED_GREEN, HIGH);
         if (magValues < 6.0) {
           fallTime = now;
           fallState = Free_Falling;
@@ -263,6 +264,7 @@ void loop() {
         break;
 
       case Free_Falling:
+        digitalWrite(LED_BLUE, HIGH); // Ensure Blue is OFF
         if (now - lastBlinkTime >= 300) {
           lastBlinkTime = now;
           digitalWrite(LED_RED, !digitalRead(LED_RED));
@@ -281,8 +283,9 @@ void loop() {
         break;
 
       case Impact:
-        digitalWrite(LED_BLUE, LOW);
-        digitalWrite(LED_RED, HIGH);
+        // Blue OFF (HIGH), Red ON (LOW)
+        digitalWrite(LED_BLUE, HIGH);
+        digitalWrite(LED_RED, LOW);
         
         if (magValues > 11.0 && magValues < 13.0) {
           fallState = Normal; 
@@ -299,7 +302,7 @@ void loop() {
           digitalWrite(LED_RED, !digitalRead(LED_RED));
         }
         if (now - stationaryTrack >= 10000) {
-          digitalWrite(LED_RED, LOW);
+          digitalWrite(LED_RED, HIGH); // Turn Red OFF
           fallState = Normal;
         }
         break;
@@ -317,9 +320,9 @@ void loop() {
     Serial.print("Local Data -> ");
     Serial.print(msg);
 
-    if (deviceConnected) {
-      pTxCharacteristic->setValue((uint8_t*)msg, strlen(msg));
-      pTxCharacteristic->notify();
+    // Notify connected BLE central
+    if (central && central.connected()) {
+      txCharacteristic.writeValue(msg);
     }
   }
 }
