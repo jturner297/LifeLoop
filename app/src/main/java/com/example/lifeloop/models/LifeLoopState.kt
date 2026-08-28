@@ -1,5 +1,5 @@
 package com.example.lifeloop.models
-
+// Data model: Kotlin data class that structures the incoming telemetry(noted below)
 
 data class LifeLoopState(
     val bpm: Float = 0f,
