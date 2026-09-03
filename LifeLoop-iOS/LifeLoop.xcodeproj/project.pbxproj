@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		580C66FA3048F9CF00C85FC7 /* LocationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 580C66F93048F9C700C85FC7 /* LocationManager.swift */; };
 		A10000000000000000000001 /* LifeLoopApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000001 /* LifeLoopApp.swift */; };
 		A10000000000000000000002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000002 /* ContentView.swift */; };
 		A10000000000000000000003 /* LifeLoopState.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000003 /* LifeLoopState.swift */; };
@@ -14,6 +15,7 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		580C66F93048F9C700C85FC7 /* LocationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocationManager.swift; sourceTree = "<group>"; };
 		B10000000000000000000001 /* LifeLoopApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LifeLoopApp.swift; sourceTree = "<group>"; };
 		B10000000000000000000002 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		B10000000000000000000003 /* LifeLoopState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LifeLoopState.swift; sourceTree = "<group>"; };
@@ -33,6 +35,14 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		580C66F83048F98C00C85FC7 /* Location */ = {
+			isa = PBXGroup;
+			children = (
+				580C66F93048F9C700C85FC7 /* LocationManager.swift */,
+			);
+			path = Location;
+			sourceTree = "<group>";
+		};
 		D10000000000000000000001 = {
 			isa = PBXGroup;
 			children = (
@@ -44,6 +54,7 @@
 		D10000000000000000000002 /* LifeLoop */ = {
 			isa = PBXGroup;
 			children = (
+				580C66F83048F98C00C85FC7 /* Location */,
 				B10000000000000000000001 /* LifeLoopApp.swift */,
 				B10000000000000000000002 /* ContentView.swift */,
 				D10000000000000000000003 /* Models */,
@@ -147,6 +158,7 @@
 			files = (
 				A10000000000000000000001 /* LifeLoopApp.swift in Sources */,
 				A10000000000000000000002 /* ContentView.swift in Sources */,
+				580C66FA3048F9CF00C85FC7 /* LocationManager.swift in Sources */,
 				A10000000000000000000003 /* LifeLoopState.swift in Sources */,
 				A10000000000000000000004 /* BLEMonitor.swift in Sources */,
 			);
