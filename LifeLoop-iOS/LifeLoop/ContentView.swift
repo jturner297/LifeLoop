@@ -2,82 +2,101 @@ import SwiftUI
 
 struct ContentView: View {
     @EnvironmentObject private var bleMonitor: BLEMonitor
-
+    @StateObject private var GPS = LocationManager()
+    
     private let background = Color(red: 5/255, green: 15/255, blue: 29/255)
     private let primaryText = Color(red: 235/255, green: 241/255, blue: 246/255)
     private let secondaryText = Color(red: 119/255, green: 135/255, blue: 151/255)
     private let teal = Color(red: 0/255, green: 210/255, blue: 174/255)
     private let blue = Color(red: 24/255, green: 126/255, blue: 255/255)
-
+    
     var body: some View {
-        ZStack(alignment: .bottomTrailing) {
-            background.ignoresSafeArea()
-
-            ScrollView(showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 0) {
-                    header
-                        .padding(.top, 44)
-
-                    ECGWaveform(color: teal)
-                        .frame(height: 86)
-                        .padding(.top, 22)
-
-                    Text("Devices")
-                        .font(.system(size: 20, weight: .semibold))
-                        .foregroundStyle(primaryText)
-                        .padding(.top, 14)
-                        .padding(.bottom, 10)
-
-                    deviceRow(
-                        name: bleMonitor.connectedDeviceName ?? "LifeLoop Band - Mom",
-                        status: bleMonitor.isConnected ? "Connected" : "Tap + to connect",
-                        battery: bleMonitor.isConnected ? "82%" : "--",
-                        accent: blue,
-                        active: true
-                    )
-
-                    deviceRow(
-                        name: "LifeLoop Band - Dad",
-                        status: "Offline",
-                        battery: "54%",
-                        accent: secondaryText,
-                        active: false
-                    )
-
-                    Spacer(minLength: 235)
-
-                    Text("View family devices")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(secondaryText.opacity(0.75))
-                        .padding(.bottom, 26)
+        TabView {
+            ZStack(alignment: .bottomTrailing) {
+                background.ignoresSafeArea()
+                
+                ScrollView(showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: 0) {
+                        header
+                            .padding(.top, 44)
+                        
+                        ECGWaveform(color: teal)
+                            .frame(height: 86)
+                            .padding(.top, 22)
+                        
+                        Text("Devices")
+                            .font(.system(size: 20, weight: .semibold))
+                            .foregroundStyle(primaryText)
+                            .padding(.top, 14)
+                            .padding(.bottom, 10)
+                        
+                        deviceRow(
+                            name: bleMonitor.connectedDeviceName ?? "LifeLoop Band - Mom",
+                            status: bleMonitor.isConnected ? "Connected" : "Tap + to connect",
+                            battery: bleMonitor.isConnected ? "82%" : "--",
+                            accent: blue,
+                            active: true
+                        )
+                        
+                        deviceRow(
+                            name: "LifeLoop Band - Dad",
+                            status: "Offline",
+                            battery: "54%",
+                            accent: secondaryText,
+                            active: false
+                        )
+                        
+                        Spacer(minLength: 235)
+                        
+                        Text("View family devices")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(secondaryText.opacity(0.75))
+                            .padding(.bottom, 26)
+                    }
+                    .padding(.horizontal, 20)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .padding(.horizontal, 20)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                
+                Button(action: addOrConnect) {
+                    Image(systemName: bleMonitor.isScanning ? "xmark" : "plus")
+                        .font(.system(size: 22, weight: .bold))
+                        .foregroundStyle(background)
+                        .frame(width: 56, height: 56)
+                        .background(teal)
+                        .clipShape(RoundedRectangle(cornerRadius: 17, style: .continuous))
+                }
+                .buttonStyle(.plain)
+                .padding(.trailing, 18)
+                .padding(.bottom, 28)
+                .accessibilityLabel(bleMonitor.isScanning ? "Stop scanning" : "Add LifeLoop device")
             }
-
-            Button(action: addOrConnect) {
-                Image(systemName: bleMonitor.isScanning ? "xmark" : "plus")
-                    .font(.system(size: 22, weight: .bold))
-                    .foregroundStyle(background)
-                    .frame(width: 56, height: 56)
-                    .background(teal)
-                    .clipShape(RoundedRectangle(cornerRadius: 17, style: .continuous))
+            .preferredColorScheme(.dark)
+            .tabItem {
+                Label("Dashboard", systemImage: "heart.text.square")
             }
-            .buttonStyle(.plain)
-            .padding(.trailing, 18)
-            .padding(.bottom, 28)
-            .accessibilityLabel(bleMonitor.isScanning ? "Stop scanning" : "Add LifeLoop device")
+            
+            MapScreen(targetLat: GPS.latitude, targetLon: GPS.longitude)
+                .tabItem {
+                    Label("Map", systemImage: "map")
+                }
         }
-        .preferredColorScheme(.dark)
     }
-
+    
     private var header: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(greeting)
                 .font(.system(size: 29, weight: .bold, design: .rounded))
                 .foregroundStyle(primaryText)
-
+            
             Text(attentionText)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(secondaryText)
+            
+            Text("Current latitude: \(GPS.latitude, specifier: "%.4f")")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(secondaryText)
+            
+            Text("Current longitude: \(GPS.longitude, specifier: "%.4f")")
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(secondaryText)
         }
