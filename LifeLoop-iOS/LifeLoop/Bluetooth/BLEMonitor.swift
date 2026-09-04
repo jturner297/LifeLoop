@@ -6,10 +6,13 @@ import Foundation
 /// iOS does not use an Android-style foreground Service or persistent
 /// notification. Background BLE work is enabled with the `bluetooth-central`
 /// background mode in Info.plist and is controlled by iOS.
-/// 
+///
+/// One app launches and utilizes bluetooth, BLEMonitor will have access to read latitude and longitude
 final class BLEMonitor: NSObject, ObservableObject {
     static let serviceUUID = CBUUID(string: "6E400001-B5A3-F393-E0A9-E50E24DCCA9E")
     static let txCharacteristicUUID = CBUUID(string: "6E400003-B5A3-F393-E0A9-E50E24DCCA9E")
+    
+    private let locationManager = LocationManager()
 
     @Published private(set) var lifeLoopState = LifeLoopState()
     @Published private(set) var bluetoothStateText = "Starting Bluetooth…"
@@ -129,8 +132,10 @@ final class BLEMonitor: NSObject, ObservableObject {
 
         let bpm = doubleValue(["bpm"]).map(Float.init) ?? lifeLoopState.bpm
         let state = doubleValue(["state"]).map(Int.init) ?? lifeLoopState.state
-        let latitude = doubleValue(["latitude", "lat"]) ?? lifeLoopState.latitude
-        let longitude = doubleValue(["longitude", "lon", "lng"]) ?? lifeLoopState.longitude
+        
+        /// Utilize iPhone's GPS chip to obtain values
+        let latitude = locationManager.latitude
+        let longitude = locationManager.longitude
 
         lifeLoopState = LifeLoopState(
             bpm: bpm,
