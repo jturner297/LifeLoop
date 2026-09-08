@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		580C66FA3048F9CF00C85FC7 /* LocationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 580C66F93048F9C700C85FC7 /* LocationManager.swift */; };
+		58EEBDCF3049B829007BB825 /* MapScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58EEBDCE3049B829007BB825 /* MapScreen.swift */; };
 		A10000000000000000000001 /* LifeLoopApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000001 /* LifeLoopApp.swift */; };
 		A10000000000000000000002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000002 /* ContentView.swift */; };
 		A10000000000000000000003 /* LifeLoopState.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000003 /* LifeLoopState.swift */; };
@@ -16,6 +17,7 @@
 
 /* Begin PBXFileReference section */
 		580C66F93048F9C700C85FC7 /* LocationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocationManager.swift; sourceTree = "<group>"; };
+		58EEBDCE3049B829007BB825 /* MapScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapScreen.swift; sourceTree = "<group>"; };
 		B10000000000000000000001 /* LifeLoopApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LifeLoopApp.swift; sourceTree = "<group>"; };
 		B10000000000000000000002 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		B10000000000000000000003 /* LifeLoopState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LifeLoopState.swift; sourceTree = "<group>"; };
@@ -39,6 +41,7 @@
 			isa = PBXGroup;
 			children = (
 				580C66F93048F9C700C85FC7 /* LocationManager.swift */,
+				58EEBDCE3049B829007BB825 /* MapScreen.swift */,
 			);
 			path = Location;
 			sourceTree = "<group>";
@@ -156,6 +159,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				58EEBDCF3049B829007BB825 /* MapScreen.swift in Sources */,
 				A10000000000000000000001 /* LifeLoopApp.swift in Sources */,
 				A10000000000000000000002 /* ContentView.swift in Sources */,
 				580C66FA3048F9CF00C85FC7 /* LocationManager.swift in Sources */,
@@ -217,12 +221,12 @@
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = WY6STY3DZL;
+				DEVELOPMENT_TEAM = BYX6MH2GQG;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = LifeLoop/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.example.LifeLoop;
+				PRODUCT_BUNDLE_IDENTIFIER = app.ShortCircuit.LifeLoop;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
@@ -237,12 +241,12 @@
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = WY6STY3DZL;
+				DEVELOPMENT_TEAM = BYX6MH2GQG;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = LifeLoop/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.example.LifeLoop;
+				PRODUCT_BUNDLE_IDENTIFIER = app.ShortCircuit.LifeLoop;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
