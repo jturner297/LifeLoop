@@ -1,32 +1,44 @@
 import CoreBluetooth
 import Foundation
 
-/// CoreBluetooth equivalent of the Android `BleMonitorService`.
-///
 /// iOS does not use an Android-style foreground Service or persistent
 /// notification. Background BLE work is enabled with the `bluetooth-central`
 /// background mode in Info.plist and is controlled by iOS.
 ///
-/// One app launches and utilizes bluetooth, BLEMonitor will have access to read latitude and longitude
+/// This version supports connecting to several devices at once (e.g. one
+/// band per family member), keeps a human-readable connection log for
+/// debugging, and persists added devices so they reappear on next launch.
+
 final class BLEMonitor: NSObject, ObservableObject {
     static let serviceUUID = CBUUID(string: "6E400001-B5A3-F393-E0A9-E50E24DCCA9E")
     static let txCharacteristicUUID = CBUUID(string: "6E400003-B5A3-F393-E0A9-E50E24DCCA9E")
-    
-    private let locationManager = LocationManager()
 
-    @Published private(set) var lifeLoopState = LifeLoopState()
     @Published private(set) var bluetoothStateText = "Starting Bluetooth…"
     @Published private(set) var isScanning = false
-    @Published private(set) var isConnected = false
-    @Published private(set) var connectedDeviceName: String?
-    @Published private(set) var lastPayload = ""
+    @Published private(set) var discoveredPeripherals: [DiscoveredPeripheral] = []
+    @Published private(set) var knownDevices: [KnownDevice] = []
+    @Published private(set) var deviceStatuses: [String: DeviceStatus] = [:]
+    @Published private(set) var connectionLog: [String] = []
 
     private var centralManager: CBCentralManager!
-    private var peripheral: CBPeripheral?
-    private var txCharacteristic: CBCharacteristic?
+    private var connectedPeripherals: [String: CBPeripheral] = [:]
+    private var txCharacteristics: [String: CBCharacteristic] = [:]
+    private let deviceStore = DeviceStore()
+
+    var isConnected: Bool {
+        deviceStatuses.values.contains { $0.isConnected }
+    }
+
+    var connectedDeviceName: String? {
+        deviceStatuses.values.first(where: { $0.isConnected })?.name
+    }
 
     override init() {
         super.init()
+        knownDevices = deviceStore.load()
+        for device in knownDevices {
+            deviceStatuses[device.id] = DeviceStatus(deviceID: device.id, name: device.name)
+        }
         centralManager = CBCentralManager(
             delegate: self,
             queue: .main,
@@ -34,61 +46,125 @@ final class BLEMonitor: NSObject, ObservableObject {
         )
     }
 
+    // MARK: Scanning
+
     func startScanning() {
         guard centralManager.state == .poweredOn else {
             bluetoothStateText = "Bluetooth is not ready"
+            log("Scan blocked — Bluetooth is not powered on")
             return
         }
 
-        if let peripheral, peripheral.state == .connected {
-            bluetoothStateText = "Already connected"
-            return
-        }
-
+        discoveredPeripherals.removeAll()
         isScanning = true
-        bluetoothStateText = "Scanning for LifeLoop…"
+        bluetoothStateText = "Scanning for LifeLoop devices…"
+        log("Started scanning")
         centralManager.scanForPeripherals(
             withServices: [Self.serviceUUID],
-            options: [CBCentralManagerScanOptionAllowDuplicatesKey: false]
+            options: [CBCentralManagerScanOptionAllowDuplicatesKey: true]
         )
     }
 
     func stopScanning() {
         centralManager.stopScan()
         isScanning = false
-        if !isConnected {
+        log("Stopped scanning")
+        if connectedPeripherals.isEmpty {
             bluetoothStateText = "Scan stopped"
         }
     }
 
-    func disconnect() {
-        guard let peripheral else { return }
+    // MARK: Connecting
+
+    /// Adds a scanned peripheral to the saved device list and immediately
+    /// attempts to connect to it.
+    func addKnownDevice(_ discovered: DiscoveredPeripheral) {
+        let device = KnownDevice(id: discovered.id.uuidString, name: discovered.name)
+        if !knownDevices.contains(where: { $0.id == device.id }) {
+            knownDevices.append(device)
+            deviceStore.save(knownDevices)
+        }
+        if deviceStatuses[device.id] == nil {
+            deviceStatuses[device.id] = DeviceStatus(deviceID: device.id, name: device.name)
+        }
+        log("Added \(device.name) to devices")
+        connect(peripheral: discovered.peripheral, name: device.name)
+    }
+
+    /// Reconnects to a previously-added device. Only works if it's
+    /// currently advertising / in range — CoreBluetooth can't dial a
+    /// peripheral it hasn't seen recently.
+    
+    func connect(toKnown device: KnownDevice) {
+        guard let uuid = UUID(uuidString: device.id) else { return }
+        if let peripheral = centralManager.retrievePeripherals(withIdentifiers: [uuid]).first {
+            connect(peripheral: peripheral, name: device.name)
+        } else {
+            log("\(device.name) not nearby — start a scan to reconnect")
+            bluetoothStateText = "\(device.name) not found nearby"
+        }
+    }
+
+    func disconnect(deviceID: String) {
+        guard let peripheral = connectedPeripherals[deviceID] else { return }
         centralManager.cancelPeripheralConnection(peripheral)
     }
 
-    private func connect(to discoveredPeripheral: CBPeripheral) {
-        stopScanning()
-        peripheral = discoveredPeripheral
-        discoveredPeripheral.delegate = self
-        connectedDeviceName = discoveredPeripheral.name
-        bluetoothStateText = "Connecting…"
-        centralManager.connect(discoveredPeripheral)
+    func disconnect() {
+        for peripheral in connectedPeripherals.values {
+            centralManager.cancelPeripheralConnection(peripheral)
+        }
     }
 
-    private func handleTelemetry(_ data: Data) {
+    func removeKnownDevice(_ device: KnownDevice) {
+        knownDevices.removeAll { $0.id == device.id }
+        deviceStore.save(knownDevices)
+        deviceStatuses.removeValue(forKey: device.id)
+        if let peripheral = connectedPeripherals[device.id] {
+            centralManager.cancelPeripheralConnection(peripheral)
+        }
+        log("Removed \(device.name)")
+    }
+
+    private func connect(peripheral: CBPeripheral, name: String) {
+        let id = peripheral.identifier.uuidString
+        peripheral.delegate = self
+        connectedPeripherals[id] = peripheral
+        updateStatus(for: id) { status in
+            status.name = name
+            status.isConnecting = true
+        }
+        log("Connecting to \(name)…")
+        centralManager.connect(peripheral)
+    }
+
+    // MARK: Telemetry parsing
+
+    private func handleTelemetry(_ data: Data, deviceID: String) {
         guard let payload = String(data: data, encoding: .utf8) else { return }
         let cleaned = payload.trimmingCharacters(in: .whitespacesAndNewlines)
-        lastPayload = cleaned
+        let fallback = deviceStatuses[deviceID]?.lifeLoopState ?? LifeLoopState()
+        let newState = parse(cleaned, fallback: fallback)
 
-        // Flexible parser for common prototype formats.
-        // Supported examples:
-        //   {"bpm":72,"state":1,"latitude":40.1,"longitude":-73.2}
-        //   bpm:72,state:1,latitude:40.1,longitude:-73.2
-        //   72,1,40.1,-73.2
+        updateStatus(for: deviceID) { status in
+            status.lastPayload = cleaned
+            status.lastUpdated = Date()
+            if let newState {
+                status.lifeLoopState = newState
+            }
+        }
+    }
+
+    /// Flexible parser for common prototype formats.
+    /// Supported examples:
+    ///   {"bpm":72,"state":1,"latitude":40.1,"longitude":-73.2}
+    ///   bpm:72,state:1,latitude:40.1,longitude:-73.2
+    ///   72,1,40.1,-73.2
+    
+    private func parse(_ cleaned: String, fallback: LifeLoopState) -> LifeLoopState? {
         if let jsonData = cleaned.data(using: .utf8),
            let object = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any] {
-            apply(dictionary: object)
-            return
+            return apply(dictionary: object, fallback: fallback)
         }
 
         let pairs = cleaned.split(separator: ",")
@@ -101,48 +177,59 @@ final class BLEMonitor: NSObject, ObservableObject {
                 dictionary[pieces[0].lowercased()] = pieces[1]
             }
         }
-
         if !dictionary.isEmpty {
-            apply(dictionary: dictionary)
-            return
+            return apply(dictionary: dictionary, fallback: fallback)
         }
 
         let values = cleaned.split(separator: ",").map {
             $0.trimmingCharacters(in: .whitespacesAndNewlines)
         }
-        if values.count >= 4 {
-            lifeLoopState = LifeLoopState(
-                bpm: Float(values[0]) ?? lifeLoopState.bpm,
-                state: Int(values[1]) ?? lifeLoopState.state,
-                latitude: Double(values[2]) ?? lifeLoopState.latitude,
-                longitude: Double(values[3]) ?? lifeLoopState.longitude
-            )
-        }
+        guard values.count >= 4 else { return nil }
+        return LifeLoopState(
+            bpm: Float(values[0]) ?? fallback.bpm,
+            state: Int(values[1]) ?? fallback.state,
+            latitude: Double(values[2]) ?? fallback.latitude,
+            longitude: Double(values[3]) ?? fallback.longitude
+        )
     }
 
-    private func apply(dictionary: [String: Any]) {
+    private func apply(dictionary: [String: Any], fallback: LifeLoopState) -> LifeLoopState {
         func doubleValue(_ keys: [String]) -> Double? {
             for key in keys {
-                guard let raw = dictionary[key] ?? dictionary.first(where: { $0.key.lowercased() == key })?.value else { continue }
-                if let number = raw as? NSNumber { return number.doubleValue }
-                if let string = raw as? String, let value = Double(string) { return value }
+                if let raw = dictionary[key] {
+                    if let number = raw as? NSNumber { return number.doubleValue }
+                    if let string = raw as? String, let value = Double(string) { return value }
+                }
+                if let match = dictionary.first(where: { $0.key.lowercased() == key }) {
+                    if let number = match.value as? NSNumber { return number.doubleValue }
+                    if let string = match.value as? String, let value = Double(string) { return value }
+                }
             }
             return nil
         }
 
-        let bpm = doubleValue(["bpm"]).map(Float.init) ?? lifeLoopState.bpm
-        let state = doubleValue(["state"]).map(Int.init) ?? lifeLoopState.state
-        
-        /// Utilize iPhone's GPS chip to obtain values
-        let latitude = locationManager.latitude
-        let longitude = locationManager.longitude
+        let bpm = doubleValue(["bpm"]).map(Float.init) ?? fallback.bpm
+        let state = doubleValue(["state"]).map(Int.init) ?? fallback.state
+        let latitude = doubleValue(["latitude", "lat"]) ?? fallback.latitude
+        let longitude = doubleValue(["longitude", "lon", "lng"]) ?? fallback.longitude
 
-        lifeLoopState = LifeLoopState(
-            bpm: bpm,
-            state: state,
-            latitude: latitude,
-            longitude: longitude
-        )
+        return LifeLoopState(bpm: bpm, state: state, latitude: latitude, longitude: longitude)
+    }
+
+    // MARK: Helpers
+
+    private func updateStatus(for id: String, _ mutate: (inout DeviceStatus) -> Void) {
+        var status = deviceStatuses[id] ?? DeviceStatus(deviceID: id, name: "Unknown device")
+        mutate(&status)
+        deviceStatuses[id] = status
+    }
+
+    private func log(_ message: String) {
+        let timestamp = DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .medium)
+        connectionLog.insert("\(timestamp) — \(message)", at: 0)
+        if connectionLog.count > 25 {
+            connectionLog.removeLast()
+        }
     }
 }
 
@@ -154,7 +241,10 @@ extension BLEMonitor: CBCentralManagerDelegate {
         case .poweredOff:
             bluetoothStateText = "Bluetooth is off"
             isScanning = false
-            isConnected = false
+            for id in deviceStatuses.keys {
+                deviceStatuses[id]?.isConnected = false
+                deviceStatuses[id]?.isConnecting = false
+            }
         case .unauthorized:
             bluetoothStateText = "Bluetooth permission denied"
         case .unsupported:
@@ -166,6 +256,7 @@ extension BLEMonitor: CBCentralManagerDelegate {
         @unknown default:
             bluetoothStateText = "Bluetooth unavailable"
         }
+        log(bluetoothStateText)
     }
 
     func centralManager(
@@ -174,12 +265,39 @@ extension BLEMonitor: CBCentralManagerDelegate {
         advertisementData: [String: Any],
         rssi RSSI: NSNumber
     ) {
-        connect(to: peripheral)
+        let name = peripheral.name
+            ?? advertisementData[CBAdvertisementDataLocalNameKey] as? String
+            ?? "Unknown LifeLoop device"
+        let discovered = DiscoveredPeripheral(
+            id: peripheral.identifier,
+            peripheral: peripheral,
+            name: name,
+            rssi: RSSI.intValue
+        )
+
+        if let index = discoveredPeripherals.firstIndex(where: { $0.id == discovered.id }) {
+            discoveredPeripherals[index] = discovered
+        } else {
+            discoveredPeripherals.append(discovered)
+            log("Found \(name) (\(RSSI.intValue) dBm)")
+        }
+
+        // Auto-reconnect devices the user has already added when they
+        // come back into range, without needing the Add Device sheet.
+        let id = peripheral.identifier.uuidString
+        if knownDevices.contains(where: { $0.id == id }) && connectedPeripherals[id] == nil {
+            connect(peripheral: peripheral, name: name)
+        }
     }
 
     func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
-        isConnected = true
-        connectedDeviceName = peripheral.name ?? "LifeLoop device"
+        let id = peripheral.identifier.uuidString
+        updateStatus(for: id) { status in
+            status.isConnected = true
+            status.isConnecting = false
+            if let name = peripheral.name { status.name = name }
+        }
+        log("Connected to \(peripheral.name ?? "device")")
         bluetoothStateText = "Connected"
         peripheral.discoverServices([Self.serviceUUID])
     }
@@ -189,9 +307,14 @@ extension BLEMonitor: CBCentralManagerDelegate {
         didFailToConnect peripheral: CBPeripheral,
         error: Error?
     ) {
-        isConnected = false
+        let id = peripheral.identifier.uuidString
+        updateStatus(for: id) { status in
+            status.isConnected = false
+            status.isConnecting = false
+        }
+        connectedPeripherals.removeValue(forKey: id)
+        log("Failed to connect to \(peripheral.name ?? "device"): \(error?.localizedDescription ?? "unknown error")")
         bluetoothStateText = "Connection failed"
-        self.peripheral = nil
     }
 
     func centralManager(
@@ -199,32 +322,39 @@ extension BLEMonitor: CBCentralManagerDelegate {
         didDisconnectPeripheral peripheral: CBPeripheral,
         error: Error?
     ) {
-        isConnected = false
-        connectedDeviceName = nil
-        txCharacteristic = nil
-        bluetoothStateText = error == nil ? "Disconnected" : "Connection lost"
-        self.peripheral = nil
+        let id = peripheral.identifier.uuidString
+        updateStatus(for: id) { status in
+            status.isConnected = false
+            status.isConnecting = false
+        }
+        connectedPeripherals.removeValue(forKey: id)
+        txCharacteristics.removeValue(forKey: id)
+        log(error == nil
+            ? "Disconnected from \(peripheral.name ?? "device")"
+            : "Connection lost to \(peripheral.name ?? "device"): \(error!.localizedDescription)")
     }
 
     func centralManager(_ central: CBCentralManager, willRestoreState dict: [String: Any]) {
-        guard let peripherals = dict[CBCentralManagerRestoredStatePeripheralsKey] as? [CBPeripheral],
-              let restored = peripherals.first else { return }
-
-        peripheral = restored
-        restored.delegate = self
-        connectedDeviceName = restored.name
-        isConnected = restored.state == .connected
-        bluetoothStateText = isConnected ? "Restored connection" : "Restored device"
+        guard let peripherals = dict[CBCentralManagerRestoredStatePeripheralsKey] as? [CBPeripheral] else { return }
+        for peripheral in peripherals {
+            let id = peripheral.identifier.uuidString
+            peripheral.delegate = self
+            connectedPeripherals[id] = peripheral
+            updateStatus(for: id) { status in
+                if let name = peripheral.name { status.name = name }
+                status.isConnected = peripheral.state == .connected
+            }
+        }
+        log("Restored \(peripherals.count) device(s) from background state")
     }
 }
 
 extension BLEMonitor: CBPeripheralDelegate {
     func peripheral(_ peripheral: CBPeripheral, didDiscoverServices error: Error?) {
         guard error == nil else {
-            bluetoothStateText = "Service discovery failed"
+            log("Service discovery failed for \(peripheral.name ?? "device"): \(error?.localizedDescription ?? "unknown error")")
             return
         }
-
         for service in peripheral.services ?? [] where service.uuid == Self.serviceUUID {
             peripheral.discoverCharacteristics([Self.txCharacteristicUUID], for: service)
         }
@@ -236,24 +366,26 @@ extension BLEMonitor: CBPeripheralDelegate {
         error: Error?
     ) {
         guard error == nil else {
-            bluetoothStateText = "Characteristic discovery failed"
+            log("Characteristic discovery failed for \(peripheral.name ?? "device"): \(error?.localizedDescription ?? "unknown error")")
             return
         }
 
         guard let characteristic = service.characteristics?.first(where: {
             $0.uuid == Self.txCharacteristicUUID
         }) else {
-            bluetoothStateText = "Telemetry characteristic not found"
+            log("Telemetry characteristic not found on \(peripheral.name ?? "device")")
             return
         }
 
-        txCharacteristic = characteristic
+        let id = peripheral.identifier.uuidString
+        txCharacteristics[id] = characteristic
+        log("Telemetry characteristic found on \(peripheral.name ?? "device")")
         if characteristic.properties.contains(.notify) || characteristic.properties.contains(.indicate) {
             peripheral.setNotifyValue(true, for: characteristic)
-            bluetoothStateText = "Monitoring telemetry"
+            log("Monitoring telemetry from \(peripheral.name ?? "device")")
         } else if characteristic.properties.contains(.read) {
             peripheral.readValue(for: characteristic)
-            bluetoothStateText = "Reading telemetry"
+            log("Reading telemetry from \(peripheral.name ?? "device")")
         }
     }
 
@@ -265,6 +397,6 @@ extension BLEMonitor: CBPeripheralDelegate {
         guard error == nil,
               characteristic.uuid == Self.txCharacteristicUUID,
               let data = characteristic.value else { return }
-        handleTelemetry(data)
+        handleTelemetry(data, deviceID: peripheral.identifier.uuidString)
     }
 }
