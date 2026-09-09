@@ -1,2 +1,12 @@
 # Ignore videos
 *.mp4
+
+# KiCad lock files
+*.lck
+
+# KiCad backup/autosave files
+*.bak
+*.kicad_prl
+
+# KiCad history/autosave directory
+.history/
