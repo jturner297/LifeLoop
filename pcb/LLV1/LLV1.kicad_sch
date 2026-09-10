@@ -2171,7 +2171,7 @@
 				)
 			)
 		)
-		(property "Footprint" "easyeda2kicad:GPSM-SMD_ATGM336H-TR"
+		(property "Footprint" "ATGM336H-5N31:GPSM-SMD_ATGM336H-TR"
 			(at 204.47 125.73 0)
 			(hide yes)
 			(show_name no)
