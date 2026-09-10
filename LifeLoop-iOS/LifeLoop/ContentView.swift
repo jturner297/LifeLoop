@@ -4,6 +4,9 @@ struct ContentView: View {
     @EnvironmentObject private var bleMonitor: BLEMonitor
     @State private var isShowingAddDeviceSheet = false
     @State private var isLogExpanded = false
+    
+    // GPS Logic
+    @StateObject private var GPS = LocationManager()
 
     private let background = Color(red: 5/255, green: 15/255, blue: 29/255)
     private let surface = Color(red: 13/255, green: 27/255, blue: 43/255)
@@ -14,41 +17,54 @@ struct ContentView: View {
     private let warning = Color(red: 255/255, green: 194/255, blue: 86/255)
 
     var body: some View {
-        ZStack(alignment: .bottomTrailing) {
-            background.ignoresSafeArea()
+        // Master container for navigating between dashboard and map
+        TabView {
+            // TAB 1: Main Dashboard
+            ZStack(alignment: .bottomTrailing) {
+                background.ignoresSafeArea()
 
-            List {
-                headerSection
-                connectionTestSection
-                devicesSection
-            }
-            .listStyle(.plain)
-            .scrollContentBackground(.hidden)
-            .background(background)
+                List {
+                    headerSection
+                    connectionTestSection
+                    devicesSection
+                }
+                .listStyle(.plain)
+                .scrollContentBackground(.hidden)
+                .background(background)
 
-            Button(action: showAddDeviceSheet) {
-                Image(systemName: bleMonitor.isScanning ? "wave.3.right" : "plus")
-                    .font(.system(size: 22, weight: .bold))
-                    .foregroundStyle(background)
-                    .frame(width: 56, height: 56)
-                    .background(teal)
-                    .clipShape(RoundedRectangle(cornerRadius: 17, style: .continuous))
+                Button(action: showAddDeviceSheet) {
+                    Image(systemName: bleMonitor.isScanning ? "wave.3.right" : "plus")
+                        .font(.system(size: 22, weight: .bold))
+                        .foregroundStyle(background)
+                        .frame(width: 56, height: 56)
+                        .background(teal)
+                        .clipShape(RoundedRectangle(cornerRadius: 17, style: .continuous))
+                }
+                .buttonStyle(.plain)
+                .padding(.trailing, 18)
+                .padding(.bottom, 28)
+                .accessibilityLabel("Add LifeLoop device")
             }
-            .buttonStyle(.plain)
-            .padding(.trailing, 18)
-            .padding(.bottom, 28)
-            .accessibilityLabel("Add LifeLoop device")
-        }
-        .preferredColorScheme(.dark)
-        .sheet(isPresented: $isShowingAddDeviceSheet) {
-            AddDeviceSheet(
-                bleMonitor: bleMonitor,
-                background: background,
-                surface: surface,
-                primaryText: primaryText,
-                secondaryText: secondaryText,
-                teal: teal
-            )
+            .preferredColorScheme(.dark)
+            .sheet(isPresented: $isShowingAddDeviceSheet) {
+                AddDeviceSheet(
+                    bleMonitor: bleMonitor,
+                    background: background,
+                    surface: surface,
+                    primaryText: primaryText,
+                    secondaryText: secondaryText,
+                    teal: teal
+                )
+            }
+            .tabItem {
+                Label("Dashboard", systemImage: "heart.text.square")
+            }
+            
+            // TAB 2: Map Screen
+            MapScreen(targetLat: GPS.latitude, targetLon: GPS.longitude)
+                .tabItem {
+                    Label("Map", systemImage: "map")
+                }
         }
     }
 
@@ -118,6 +134,12 @@ struct ContentView: View {
             Text(attentionText)
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(secondaryText)
+            
+            // Current GPS coordinates displayed in header
+            Text(GPS.currentAddress)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(teal)
+                .padding(.top, 2)
         }
     }
 
