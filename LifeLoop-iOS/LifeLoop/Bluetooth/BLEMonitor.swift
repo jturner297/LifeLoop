@@ -399,4 +399,23 @@ extension BLEMonitor: CBPeripheralDelegate {
               let data = characteristic.value else { return }
         handleTelemetry(data, deviceID: peripheral.identifier.uuidString)
     }
+    
+    // Function that checks if a device is online and logs it to show when the device was last connected 
+    func checkOfflineDevices(){
+        for (id, status) in deviceStatuses {
+            if status.isConnected{
+                if let lastTime = status.lastUpdated{
+                    let secondsPassed = Date().timeIntervalSince(lastTime)
+                    
+                    if secondsPassed > 60{
+                        deviceStatuses[id]?.isConnected = false
+                        
+                        log("\(status.name) is offline since \(lastTime.description)")
+                    }
+                }
+            }
+               
+               
+        }
+    }
 }

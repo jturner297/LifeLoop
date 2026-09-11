@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		580C66FA3048F9CF00C85FC7 /* LocationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 580C66F93048F9C700C85FC7 /* LocationManager.swift */; };
+		58386C30305301E1008BFE72 /* Assests.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 58386C2F305301E1008BFE72 /* Assests.xcassets */; };
 		58EEBDCF3049B829007BB825 /* MapScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58EEBDCE3049B829007BB825 /* MapScreen.swift */; };
 		A10000000000000000000001 /* LifeLoopApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000001 /* LifeLoopApp.swift */; };
 		A10000000000000000000002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000002 /* ContentView.swift */; };
@@ -17,6 +18,7 @@
 
 /* Begin PBXFileReference section */
 		580C66F93048F9C700C85FC7 /* LocationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocationManager.swift; sourceTree = "<group>"; };
+		58386C2F305301E1008BFE72 /* Assests.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assests.xcassets; sourceTree = "<group>"; };
 		58EEBDCE3049B829007BB825 /* MapScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapScreen.swift; sourceTree = "<group>"; };
 		B10000000000000000000001 /* LifeLoopApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LifeLoopApp.swift; sourceTree = "<group>"; };
 		B10000000000000000000002 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
@@ -63,6 +65,7 @@
 				D10000000000000000000003 /* Models */,
 				D10000000000000000000004 /* Bluetooth */,
 				B10000000000000000000005 /* Info.plist */,
+				58386C2F305301E1008BFE72 /* Assests.xcassets */,
 			);
 			path = LifeLoop;
 			sourceTree = "<group>";
@@ -149,6 +152,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				58386C30305301E1008BFE72 /* Assests.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -219,6 +223,8 @@
 		F10000000000000000000005 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = NO;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = BYX6MH2GQG;
@@ -239,6 +245,8 @@
 		F10000000000000000000006 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = NO;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = BYX6MH2GQG;

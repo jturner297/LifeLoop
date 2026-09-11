@@ -15,7 +15,9 @@ struct ContentView: View {
     private let teal = Color(red: 0/255, green: 210/255, blue: 174/255)
     private let blue = Color(red: 24/255, green: 126/255, blue: 255/255)
     private let warning = Color(red: 255/255, green: 194/255, blue: 86/255)
-
+    // Declare timer at the top of ContentView
+    let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+    
     var body: some View {
         // Master container for navigating between dashboard and map
         TabView {
@@ -65,6 +67,11 @@ struct ContentView: View {
                 .tabItem {
                     Label("Map", systemImage: "map")
                 }
+        }
+        // Attach listener to TabView
+        .onReceive(timer) { _ in
+            //Tell the BLE monitor to run its check
+            bleMonitor.checkOfflineDevices()
         }
     }
 
