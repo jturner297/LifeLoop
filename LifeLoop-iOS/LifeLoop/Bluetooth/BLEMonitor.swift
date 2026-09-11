@@ -12,6 +12,8 @@ import Foundation
 final class BLEMonitor: NSObject, ObservableObject {
     static let serviceUUID = CBUUID(string: "6E400001-B5A3-F393-E0A9-E50E24DCCA9E")
     static let txCharacteristicUUID = CBUUID(string: "6E400003-B5A3-F393-E0A9-E50E24DCCA9E")
+    
+    private let locationManager = LocationManager()
 
     @Published private(set) var bluetoothStateText = "Starting Bluetooth…"
     @Published private(set) var isScanning = false
@@ -31,6 +33,10 @@ final class BLEMonitor: NSObject, ObservableObject {
 
     var connectedDeviceName: String? {
         deviceStatuses.values.first(where: { $0.isConnected })?.name
+    }
+
+    private func savedName(for deviceID: String, fallback: String) -> String {
+        knownDevices.first(where: { $0.id == deviceID })?.name ?? fallback
     }
 
     override init() {
@@ -84,11 +90,13 @@ final class BLEMonitor: NSObject, ObservableObject {
             knownDevices.append(device)
             deviceStore.save(knownDevices)
         }
+
+        let displayName = savedName(for: device.id, fallback: device.name)
         if deviceStatuses[device.id] == nil {
-            deviceStatuses[device.id] = DeviceStatus(deviceID: device.id, name: device.name)
+            deviceStatuses[device.id] = DeviceStatus(deviceID: device.id, name: displayName)
         }
-        log("Added \(device.name) to devices")
-        connect(peripheral: discovered.peripheral, name: device.name)
+        log("Added \(displayName) to devices")
+        connect(peripheral: discovered.peripheral, name: displayName)
     }
 
     /// Reconnects to a previously-added device. Only works if it's
@@ -114,6 +122,19 @@ final class BLEMonitor: NSObject, ObservableObject {
         for peripheral in connectedPeripherals.values {
             centralManager.cancelPeripheralConnection(peripheral)
         }
+    }
+
+    func renameKnownDevice(_ device: KnownDevice, name: String) {
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty,
+              let index = knownDevices.firstIndex(where: { $0.id == device.id }) else { return }
+
+        knownDevices[index].name = trimmedName
+        deviceStore.save(knownDevices)
+        updateStatus(for: device.id) { status in
+            status.name = trimmedName
+        }
+        log("Renamed device to \(trimmedName)")
     }
 
     func removeKnownDevice(_ device: KnownDevice) {
@@ -159,15 +180,15 @@ final class BLEMonitor: NSObject, ObservableObject {
     /// Supported examples:
     ///   {"bpm":72,"state":1,"latitude":40.1,"longitude":-73.2}
     ///   bpm:72,state:1,latitude:40.1,longitude:-73.2
+    ///   BPM: 72.0|state:1|Lat:40.1|Lon:-73.2
     ///   72,1,40.1,-73.2
-    
     private func parse(_ cleaned: String, fallback: LifeLoopState) -> LifeLoopState? {
         if let jsonData = cleaned.data(using: .utf8),
            let object = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any] {
             return apply(dictionary: object, fallback: fallback)
         }
 
-        let pairs = cleaned.split(separator: ",")
+        let pairs = cleaned.split(whereSeparator: { $0 == "," || $0 == "|" })
         var dictionary: [String: Any] = [:]
         for pair in pairs {
             let pieces = pair.split(separator: ":", maxSplits: 1).map {
@@ -181,7 +202,7 @@ final class BLEMonitor: NSObject, ObservableObject {
             return apply(dictionary: dictionary, fallback: fallback)
         }
 
-        let values = cleaned.split(separator: ",").map {
+        let values = pairs.map {
             $0.trimmingCharacters(in: .whitespacesAndNewlines)
         }
         guard values.count >= 4 else { return nil }
@@ -196,13 +217,12 @@ final class BLEMonitor: NSObject, ObservableObject {
     private func apply(dictionary: [String: Any], fallback: LifeLoopState) -> LifeLoopState {
         func doubleValue(_ keys: [String]) -> Double? {
             for key in keys {
-                if let raw = dictionary[key] {
-                    if let number = raw as? NSNumber { return number.doubleValue }
-                    if let string = raw as? String, let value = Double(string) { return value }
+                if let raw = dictionary[key], let value = parseDouble(raw) {
+                    return value
                 }
-                if let match = dictionary.first(where: { $0.key.lowercased() == key }) {
-                    if let number = match.value as? NSNumber { return number.doubleValue }
-                    if let string = match.value as? String, let value = Double(string) { return value }
+                if let match = dictionary.first(where: { $0.key.lowercased() == key }),
+                   let value = parseDouble(match.value) {
+                    return value
                 }
             }
             return nil
@@ -214,6 +234,19 @@ final class BLEMonitor: NSObject, ObservableObject {
         let longitude = doubleValue(["longitude", "lon", "lng"]) ?? fallback.longitude
 
         return LifeLoopState(bpm: bpm, state: state, latitude: latitude, longitude: longitude)
+    }
+
+    private func parseDouble(_ raw: Any) -> Double? {
+        if let number = raw as? NSNumber { return number.doubleValue }
+        guard let string = raw as? String else { return nil }
+        if let value = Double(string) { return value }
+
+        let allowedCharacters = CharacterSet(charactersIn: "-0123456789.")
+        let numericString = string.unicodeScalars
+            .filter { allowedCharacters.contains($0) }
+            .map(String.init)
+            .joined()
+        return Double(numericString)
     }
 
     // MARK: Helpers
@@ -229,6 +262,25 @@ final class BLEMonitor: NSObject, ObservableObject {
         connectionLog.insert("\(timestamp) — \(message)", at: 0)
         if connectionLog.count > 25 {
             connectionLog.removeLast()
+        }
+    }
+    
+    // Function that checks if a device is online and logs it to show when the device was last connected
+    func checkOfflineDevices(){
+        for (id, status) in deviceStatuses {
+            if status.isConnected{
+                if let lastTime = status.lastUpdated{
+                    let secondsPassed = Date().timeIntervalSince(lastTime)
+                    
+                    if secondsPassed > 60{
+                        deviceStatuses[id]?.isConnected = false
+                        
+                        log("\(status.name) is offline since \(lastTime.description)")
+                    }
+                }
+            }
+                
+                
         }
     }
 }
@@ -286,18 +338,19 @@ extension BLEMonitor: CBCentralManagerDelegate {
         // come back into range, without needing the Add Device sheet.
         let id = peripheral.identifier.uuidString
         if knownDevices.contains(where: { $0.id == id }) && connectedPeripherals[id] == nil {
-            connect(peripheral: peripheral, name: name)
+            connect(peripheral: peripheral, name: savedName(for: id, fallback: name))
         }
     }
 
     func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
         let id = peripheral.identifier.uuidString
+        let displayName = savedName(for: id, fallback: peripheral.name ?? "device")
         updateStatus(for: id) { status in
             status.isConnected = true
             status.isConnecting = false
-            if let name = peripheral.name { status.name = name }
+            status.name = displayName
         }
-        log("Connected to \(peripheral.name ?? "device")")
+        log("Connected to \(displayName)")
         bluetoothStateText = "Connected"
         peripheral.discoverServices([Self.serviceUUID])
     }
@@ -341,7 +394,7 @@ extension BLEMonitor: CBCentralManagerDelegate {
             peripheral.delegate = self
             connectedPeripherals[id] = peripheral
             updateStatus(for: id) { status in
-                if let name = peripheral.name { status.name = name }
+                status.name = savedName(for: id, fallback: peripheral.name ?? status.name)
                 status.isConnected = peripheral.state == .connected
             }
         }
@@ -398,24 +451,5 @@ extension BLEMonitor: CBPeripheralDelegate {
               characteristic.uuid == Self.txCharacteristicUUID,
               let data = characteristic.value else { return }
         handleTelemetry(data, deviceID: peripheral.identifier.uuidString)
-    }
-    
-    // Function that checks if a device is online and logs it to show when the device was last connected 
-    func checkOfflineDevices(){
-        for (id, status) in deviceStatuses {
-            if status.isConnected{
-                if let lastTime = status.lastUpdated{
-                    let secondsPassed = Date().timeIntervalSince(lastTime)
-                    
-                    if secondsPassed > 60{
-                        deviceStatuses[id]?.isConnected = false
-                        
-                        log("\(status.name) is offline since \(lastTime.description)")
-                    }
-                }
-            }
-               
-               
-        }
     }
 }
