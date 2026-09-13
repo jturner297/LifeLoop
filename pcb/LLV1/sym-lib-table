@@ -1,6 +1,6 @@
 (sym_lib_table
 	(version 7)
-	(lib (name "Seeed_Studio_XIAO_Series") (type "KiCad") (uri "C:/Users/Justin Turner/Documents/Projects/KiCad/XIAO_Series_SCH_Symbols/Seeed_Studio_XIAO_Series.kicad_sym") (options "") (descr ""))
-	(lib (name "Seeed Studio XIAO nRF52840 v1.1-eagle-import") (type "KiCad") (uri "C:/Users/Justin Turner/Documents/Projects/KiCad/Seeed-Studio-XIAO-nRF52840V1.1-KiCad-Project-260105/Seeed-Studio-XIAO-nRF52840_V1.1_SCH & PCB_251222_01/Seeed Studio XIAO nRF52840 v1.1-eagle-import.kicad_sym") (options "") (descr ""))
-	(lib (name "ATGM336H-5N31") (type "KiCad") (uri "C:/Users/Justin Turner/Documents/Projects/KiCad/ATGM336H-5N31.kicad_sym") (options "") (descr ""))
+	(lib (name "Seeed_Studio_XIAO_Series") (type "KiCad") (uri "C:/Users/Justin Turner/Documents/Projects/LifeLoop/PCB/Materials/XIAO_Series_SCH_Symbols/Seeed_Studio_XIAO_Series.kicad_sym") (options "") (descr ""))
+	(lib (name "Seeed Studio XIAO nRF52840 v1.1-eagle-import") (type "KiCad") (uri "C:/Users/Justin Turner/Documents/Projects/LifeLoop/PCB/Materials/Seeed-Studio-XIAO-nRF52840V1.1-KiCad-Project-260105/Seeed-Studio-XIAO-nRF52840_V1.1_SCH & PCB_251222_01/Seeed Studio XIAO nRF52840 v1.1-eagle-import.kicad_sym") (options "") (descr ""))
+	(lib (name "easyeda2kicad") (type "KiCad") (uri "C:/Users/Justin Turner/Documents/Projects/LifeLoop/PCB/Materials/easyeda2kicad.kicad_sym") (options "") (descr ""))
 )
