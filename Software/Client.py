@@ -158,6 +158,9 @@ def print_dashboard(bpm, lat, lon, location_source, state):
     sys.stdout.write("\033[K=======================================================\n")
     sys.stdout.write("\033[K              LIFE LOOP WELLNESS MONITOR               \n")
     sys.stdout.write("\033[K=======================================================\n")
+
+    current_time = time.strftime("%I:%M:%S %p")
+    sys.stdout.write(f"\033[K Time      : {current_time}\n")
     sys.stdout.write(f"\033[K BPM       : {bpm:<6.1f}\n")
 
     if lat is None or lon is None:
@@ -194,23 +197,20 @@ def print_dashboard(bpm, lat, lon, location_source, state):
 
 
 def notification_handler(sender, data):
-    global last_address_time, current_address
+    global last_address_time, current_address, last_address_lat, last_address_lon
 
     payload = data.decode("utf-8").strip()
 
     try:
+        # Parse the new 2-part string from the wearable (BPM and State only)
         parts = payload.split("|")
         bpm = float(parts[0].split(":")[1])
         state = int(parts[1].split(":")[1])
-        lat = float(parts[2].split(":")[1])
-        lon = float(parts[3].split(":")[1])
 
-        location_source = "GPS"
-
-        if lat == 0.0 or lon == 0.0:
-            location_source = "Wi-Fi (Smoothed)"
-            lat = current_wifi_lat
-            lon = current_wifi_lon
+        # Default entirely to the background Wi-Fi scanner since hardware GPS is gone
+        location_source = "Wi-Fi (Smoothed)"
+        lat = current_wifi_lat
+        lon = current_wifi_lon
 
         # Address Resolution Task (Throttled)
         current_time = time.time()
@@ -229,7 +229,9 @@ def notification_handler(sender, data):
         # Render the UI
         print_dashboard(bpm, lat, lon, location_source, state)
 
-    except Exception:
+    except Exception as e:
+        # Optional: Print the error temporarily if it freezes again so you can debug it
+        # print(f"Error parsing data: {e}")
         pass
 
 
