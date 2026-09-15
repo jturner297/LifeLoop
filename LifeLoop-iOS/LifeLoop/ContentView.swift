@@ -3,7 +3,6 @@ import SwiftUI
 struct ContentView: View {
     @EnvironmentObject private var bleMonitor: BLEMonitor
     @State private var isShowingAddDeviceSheet = false
-    @State private var isLogExpanded = false
     @State private var selectedDevice: KnownDevice?
     
     // GPS Logic
@@ -29,7 +28,6 @@ struct ContentView: View {
 
                 List {
                     headerSection
-                    connectionTestSection
                     devicesSection
                 }
                 .listStyle(.plain)
@@ -105,15 +103,6 @@ struct ContentView: View {
         }
     }
 
-    private var connectionTestSection: some View {
-        Section {
-            connectionTestCard
-                .listRowBackground(background)
-                .listRowSeparator(.hidden)
-                .listRowInsets(EdgeInsets(top: 18, leading: 20, bottom: 10, trailing: 20))
-        }
-    }
-
     private var devicesSection: some View {
         Section {
             if bleMonitor.knownDevices.isEmpty {
@@ -162,62 +151,6 @@ struct ContentView: View {
                 .foregroundStyle(teal)
                 .padding(.top, 2)
         }
-    }
-
-    private var connectionTestCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 10) {
-                Circle()
-                    .fill(connectionColor)
-                    .frame(width: 11, height: 11)
-                    .shadow(color: connectionColor.opacity(0.55), radius: 4)
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Connection Test")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(primaryText)
-
-                    Text(bleMonitor.bluetoothStateText)
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(secondaryText)
-                }
-
-                Spacer()
-
-                Button(action: toggleTestScan) {
-                    Label(bleMonitor.isScanning ? "Stop" : "Test Scan", systemImage: bleMonitor.isScanning ? "stop.fill" : "dot.radiowaves.left.and.right")
-                        .font(.system(size: 12, weight: .semibold))
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(bleMonitor.isScanning ? secondaryText : teal)
-            }
-
-            DisclosureGroup(isExpanded: $isLogExpanded) {
-                VStack(alignment: .leading, spacing: 8) {
-                    if bleMonitor.connectionLog.isEmpty {
-                        Text("No connection events yet")
-                            .font(.system(size: 12, weight: .regular))
-                            .foregroundStyle(secondaryText)
-                    } else {
-                        ForEach(bleMonitor.connectionLog, id: \.self) { entry in
-                            Text(entry)
-                                .font(.system(size: 11, weight: .regular, design: .monospaced))
-                                .foregroundStyle(secondaryText)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                    }
-                }
-                .padding(.top, 8)
-            } label: {
-                Text("Connection Log")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(primaryText)
-            }
-            .tint(teal)
-        }
-        .padding(14)
-        .background(surface)
-        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 
     private var emptyDeviceRow: some View {
@@ -320,14 +253,6 @@ struct ContentView: View {
         isShowingAddDeviceSheet = true
         bleMonitor.startScanning()
     }
-
-    private func toggleTestScan() {
-        if bleMonitor.isScanning {
-            bleMonitor.stopScanning()
-        } else {
-            bleMonitor.startScanning()
-        }
-    }
 }
 
 private struct DeviceProfileSheet: View {
@@ -335,6 +260,7 @@ private struct DeviceProfileSheet: View {
     @ObservedObject var bleMonitor: BLEMonitor
     @Environment(\.dismiss) private var dismiss
     @State private var deviceName: String
+    @State private var isLogExpanded = false
 
     let background: Color
     let surface: Color
@@ -411,6 +337,32 @@ private struct DeviceProfileSheet: View {
                         .foregroundStyle(status.lastPayload.isEmpty ? secondaryText : primaryText)
                         .textSelection(.enabled)
                         .listRowBackground(surface)
+                }
+                
+                Section {
+                    DisclosureGroup(isExpanded: $isLogExpanded) {
+                        VStack(alignment: .leading, spacing: 8) {
+                            if bleMonitor.connectionLog.isEmpty {
+                                Text("No connection events yet")
+                                    .font(.system(size: 12, weight: .regular))
+                                    .foregroundStyle(secondaryText)
+                            } else {
+                                ForEach(bleMonitor.connectionLog, id: \.self) { entry in
+                                    Text(entry)
+                                        .font(.system(size: 11, weight: .regular, design: .monospaced))
+                                        .foregroundStyle(secondaryText)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                }
+                            }
+                        }
+                        .padding(.top, 8)
+                    } label: {
+                        Text("Connection Log")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(primaryText)
+                    }
+                    .tint(teal)
+                    .listRowBackground(surface)
                 }
             }
             .navigationTitle(currentDevice?.name ?? device.name)

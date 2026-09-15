@@ -275,12 +275,11 @@ final class BLEMonitor: NSObject, ObservableObject {
                     if secondsPassed > 60{
                         deviceStatuses[id]?.isConnected = false
                         
-                        log("\(status.name) is offline since \(lastTime.description)")
+                        let timeString = lastTime.formatted(date: .omitted, time: .shortened)
+                        log("\(status.name) is offline since \(timeString)")
                     }
                 }
             }
-                
-                
         }
     }
 }
