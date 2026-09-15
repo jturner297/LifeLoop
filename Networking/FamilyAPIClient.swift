@@ -36,8 +36,8 @@ struct LinkDevicePayload: Codable {
 final class FamilyAPIClient {
     static let shared = FamilyAPIClient()
 
-    private let graphQLEndpoint = URL(string: "https://7a5tliym6vhudnwa2mydck4cya.appsync-api.us-east-2.amazonaws.com/graphql")!
-    private let apiKey = "da2-7ml4dx2sifgvxnxyavaypzteym"
+    private let graphQLEndpoint = URL(string: "https://Placeholder.amazonaws.com/graphql")!
+    private let apiKey = "da2-Placeholder"
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
 
