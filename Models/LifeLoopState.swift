@@ -42,6 +42,7 @@ struct DiscoveredPeripheral: Identifiable, Equatable {
 /// Persists the user's added devices across launches using UserDefaults.
 /// Swap this out for a Core Data / file-based store later without
 /// touching BLEMonitor if the device list grows more complex.
+
 struct DeviceStore {
     private let key = "com.lifeloop.knownDevices"
 

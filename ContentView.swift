@@ -1,12 +1,20 @@
 import SwiftUI
 
+private enum AppTab {
+    case devices
+    case family
+    case map
+}
+
 struct ContentView: View {
     @EnvironmentObject private var bleMonitor: BLEMonitor
     @State private var isShowingAddDeviceSheet = false
     @State private var selectedDevice: KnownDevice?
-    
+    @State private var selectedTab: AppTab = .devices
+
     // GPS Logic
     @StateObject private var GPS = LocationManager()
+    @StateObject private var familyManager = FamilyDeviceManager()
 
     private let background = Color(red: 5/255, green: 15/255, blue: 29/255)
     private let surface = Color(red: 13/255, green: 27/255, blue: 43/255)
@@ -15,53 +23,19 @@ struct ContentView: View {
     private let teal = Color(red: 0/255, green: 210/255, blue: 174/255)
     private let blue = Color(red: 24/255, green: 126/255, blue: 255/255)
     private let warning = Color(red: 255/255, green: 194/255, blue: 86/255)
-    
-    // Declare timer at the top of ContentView
-    let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
-    
+
+    private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+
     var body: some View {
-        // Master container for navigating between dashboard and map
-        TabView {
-            // TAB 1: Main Dashboard
-            ZStack(alignment: .bottomTrailing) {
-                background.ignoresSafeArea()
-
-                List {
-                    headerSection
-                    devicesSection
-                }
-                .listStyle(.plain)
-                .scrollContentBackground(.hidden)
-                .background(background)
-
-                Button(action: showAddDeviceSheet) {
-                    Image(systemName: bleMonitor.isScanning ? "wave.3.right" : "plus")
-                        .font(.system(size: 22, weight: .bold))
-                        .foregroundStyle(background)
-                        .frame(width: 56, height: 56)
-                        .background(teal)
-                        .clipShape(RoundedRectangle(cornerRadius: 17, style: .continuous))
-                }
-                .buttonStyle(.plain)
-                .padding(.trailing, 18)
-                .padding(.bottom, 28)
-                .accessibilityLabel("Add LifeLoop device")
-            }
-            .preferredColorScheme(.dark)
-            .sheet(isPresented: $isShowingAddDeviceSheet) {
-                AddDeviceSheet(
-                    bleMonitor: bleMonitor,
-                    background: background,
-                    surface: surface,
-                    primaryText: primaryText,
-                    secondaryText: secondaryText,
-                    teal: teal
-                )
-            }
-            .sheet(item: $selectedDevice) { device in
-                DeviceProfileSheet(
-                    device: device,
-                    bleMonitor: bleMonitor,
+        ZStack(alignment: .bottom) {
+            switch selectedTab {
+            case .devices:
+                dashboardView
+            case .family:
+                FamilyDevicesView(
+                    familyManager: familyManager,
+                    localDevices: bleMonitor.knownDevices,
+                    deviceStatuses: bleMonitor.deviceStatuses,
                     background: background,
                     surface: surface,
                     primaryText: primaryText,
@@ -69,21 +43,106 @@ struct ContentView: View {
                     teal: teal,
                     warning: warning
                 )
+            case .map:
+                MapScreen(
+                    targetLat: GPS.latitude,
+                    targetLon: GPS.longitude,
+                    statusText: GPS.statusText,
+                    familyDevices: familyManager.familyDevices
+                )
             }
-            .tabItem {
-                Label("Dashboard", systemImage: "heart.text.square")
-            }
-            
-            // TAB 2: Map Screen
-            MapScreen(targetLat: GPS.latitude, targetLon: GPS.longitude)
-                .tabItem {
-                    Label("Map", systemImage: "map")
-                }
+
+            tabBar
         }
-        // Attach listener to TabView
+        .preferredColorScheme(.dark)
+        .sheet(isPresented: $isShowingAddDeviceSheet) {
+            AddDeviceSheet(
+                bleMonitor: bleMonitor,
+                background: background,
+                surface: surface,
+                primaryText: primaryText,
+                secondaryText: secondaryText,
+                teal: teal
+            )
+        }
+        .sheet(item: $selectedDevice) { device in
+            DeviceProfileSheet(
+                device: device,
+                bleMonitor: bleMonitor,
+                background: background,
+                surface: surface,
+                primaryText: primaryText,
+                secondaryText: secondaryText,
+                teal: teal,
+                warning: warning
+            )
+        }
         .onReceive(timer) { _ in
-            //Tell the BLE monitor to run its check
             bleMonitor.checkOfflineDevices()
+            familyManager.uploadLocalDevices(
+                bleMonitor.knownDevices,
+                statuses: bleMonitor.deviceStatuses,
+                fallbackLatitude: GPS.latitude,
+                fallbackLongitude: GPS.longitude
+            )
+            Task {
+                await familyManager.refreshFamilyDevices(force: false)
+            }
+        }
+    }
+
+    private var tabBar: some View {
+        HStack(spacing: 10) {
+            tabButton(title: "Devices", systemImage: "wave.3.right", tab: .devices)
+            tabButton(title: "Family", systemImage: "person.2", tab: .family)
+            tabButton(title: "Map", systemImage: "map", tab: .map)
+        }
+        .padding(8)
+        .background(surface.opacity(0.96))
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .padding(.horizontal, 18)
+        .padding(.bottom, 8)
+    }
+
+    private func tabButton(title: String, systemImage: String, tab: AppTab) -> some View {
+        Button {
+            selectedTab = tab
+        } label: {
+            Label(title, systemImage: systemImage)
+                .font(.system(size: 13, weight: .semibold))
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 10)
+                .foregroundStyle(selectedTab == tab ? background : primaryText)
+                .background(selectedTab == tab ? teal : Color.clear)
+                .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var dashboardView: some View {
+        ZStack(alignment: .bottomTrailing) {
+            background.ignoresSafeArea()
+
+            List {
+                headerSection
+                devicesSection
+            }
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .background(background)
+
+            Button(action: showAddDeviceSheet) {
+                Image(systemName: bleMonitor.isScanning ? "wave.3.right" : "plus")
+                    .font(.system(size: 22, weight: .bold))
+                    .foregroundStyle(background)
+                    .frame(width: 56, height: 56)
+                    .background(teal)
+                    .clipShape(RoundedRectangle(cornerRadius: 17, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .padding(.trailing, 18)
+            .padding(.bottom, 86)
+            .accessibilityLabel("Add LifeLoop device")
         }
     }
 
@@ -146,10 +205,10 @@ struct ContentView: View {
                 .foregroundStyle(secondaryText)
             
             // Current GPS coordinates displayed in header
-            Text(GPS.currentAddress)
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(teal)
-                .padding(.top, 2)
+                      Text(GPS.currentAddress)
+                          .font(.system(size: 14, weight: .semibold))
+                          .foregroundStyle(teal)
+                          .padding(.top, 2)
         }
     }
 
@@ -176,9 +235,14 @@ struct ContentView: View {
 
     private var greeting: String {
         let hour = Calendar.current.component(.hour, from: Date())
-        if hour < 12 { return "Good morning" }
-        if hour < 17 { return "Good afternoon" }
-        return "Good evening"
+        if hour < 12 { return "Good Morning" }
+        if hour < 17 { return "Good Afternoon" }
+        return "Good Evening"
+    }
+
+    private func coordinateText(_ coordinate: Double?) -> String {
+        guard let coordinate else { return "Waiting" }
+        return String(format: "%.4f", coordinate)
     }
 
     private var attentionText: String {
@@ -253,6 +317,7 @@ struct ContentView: View {
         isShowingAddDeviceSheet = true
         bleMonitor.startScanning()
     }
+
 }
 
 private struct DeviceProfileSheet: View {
@@ -338,7 +403,7 @@ private struct DeviceProfileSheet: View {
                         .textSelection(.enabled)
                         .listRowBackground(surface)
                 }
-                
+
                 Section {
                     DisclosureGroup(isExpanded: $isLogExpanded) {
                         VStack(alignment: .leading, spacing: 8) {

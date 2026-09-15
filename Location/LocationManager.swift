@@ -24,9 +24,12 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     @Published var latitude = 0.0
     @Published var longitude = 0.0
     @Published var currentAddress = "Locating..."
-    
-    // Throttles requests to Apple's servers to prevent rate-limiting
+
     private var lastGeocodeTime: Date?
+
+    var statusText: String {
+        currentAddress
+    }
     
     // Init is our constructor (runs soon as class is created)
     // Requires override since NSObject contains a default empty init(), we are replacing the parent default version
@@ -39,11 +42,8 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         
         manager.delegate = self
         manager.requestWhenInUseAuthorization()
-        
-        // Limit the hardware to save battery and prevent spam
         manager.desiredAccuracy = kCLLocationAccuracyNearestTenMeters
         manager.distanceFilter = 20
-        
         manager.startUpdatingLocation()
     }
     
@@ -59,9 +59,8 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         
         latitude = latestLocation.coordinate.latitude
         longitude = latestLocation.coordinate.longitude
-        
-        // Abort translation if it's been less than 60 seconds to protect the geocoder
-        if let lastTime = lastGeocodeTime, Date().timeIntervalSince(lastTime) < 60 {
+
+        if let lastGeocodeTime, Date().timeIntervalSince(lastGeocodeTime) < 60 {
             return
         }
         lastGeocodeTime = Date()
@@ -72,7 +71,7 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
             // Unwraps self and if manager is destroyed then abort
             guard let self = self else {return}
                 //Check for server errors or lack of internet
-                if let error = error {
+                if error != nil {
                     self.currentAddress = "Address unavailable"
                     return
                 }
@@ -90,5 +89,8 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
             }
         
     }
+    
+    
+    
     
 }

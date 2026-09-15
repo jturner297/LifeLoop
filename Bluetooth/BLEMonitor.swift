@@ -124,6 +124,30 @@ final class BLEMonitor: NSObject, ObservableObject {
         }
     }
 
+    func checkOfflineDevices(timeout: TimeInterval = 60) {
+        let now = Date()
+        for (id, status) in deviceStatuses where status.isConnected {
+            let peripheralDisconnected = connectedPeripherals[id]?.state != .connected
+            let telemetryTimedOut = status.lastUpdated.map { now.timeIntervalSince($0) > timeout } ?? false
+
+            if peripheralDisconnected || telemetryTimedOut {
+                updateStatus(for: id) { updatedStatus in
+                    updatedStatus.isConnected = false
+                    updatedStatus.isConnecting = false
+                }
+                connectedPeripherals.removeValue(forKey: id)
+                txCharacteristics.removeValue(forKey: id)
+
+                if let lastUpdated = status.lastUpdated {
+                    let timeString = lastUpdated.formatted(date: .omitted, time: .shortened)
+                    log("\(status.name) is offline since \(timeString)")
+                } else {
+                    log("\(status.name) went offline")
+                }
+            }
+        }
+    }
+
     func renameKnownDevice(_ device: KnownDevice, name: String) {
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedName.isEmpty,
@@ -262,24 +286,6 @@ final class BLEMonitor: NSObject, ObservableObject {
         connectionLog.insert("\(timestamp) — \(message)", at: 0)
         if connectionLog.count > 25 {
             connectionLog.removeLast()
-        }
-    }
-    
-    // Function that checks if a device is online and logs it to show when the device was last connected
-    func checkOfflineDevices(){
-        for (id, status) in deviceStatuses {
-            if status.isConnected{
-                if let lastTime = status.lastUpdated{
-                    let secondsPassed = Date().timeIntervalSince(lastTime)
-                    
-                    if secondsPassed > 60{
-                        deviceStatuses[id]?.isConnected = false
-                        
-                        let timeString = lastTime.formatted(date: .omitted, time: .shortened)
-                        log("\(status.name) is offline since \(timeString)")
-                    }
-                }
-            }
         }
     }
 }

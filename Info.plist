@@ -27,10 +27,14 @@
 	<key>NSBluetoothPeripheralUsageDescription</key>
 	<string>LifeLoop uses Bluetooth to communicate with your LifeLoop BLE device.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>LifeLoop requires your location to dispatch emergency services if you become unresponsive </string>
+	<string>LifeLoop uses your location to show your current position on the map.</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>bluetooth-central</string>
+		<string>processing</string>
+		<string>bluetooth-peripheral</string>
+		<string>location</string>
+		<string>remote-notification</string>
 	</array>
 	<key>UILaunchScreen</key>
 	<dict/>
