@@ -1569,6 +1569,7 @@
 			(at 8.255 -8.001 90)
 			(unlocked yes)
 			(layer "B.SilkS")
+			(hide yes)
 			(uuid "6362c8ef-d437-4de8-8f1d-d479a74c7ebe")
 			(effects
 				(font
@@ -1582,6 +1583,7 @@
 			(at 0 -1 90)
 			(unlocked yes)
 			(layer "B.Fab")
+			(hide yes)
 			(uuid "51e62c83-f7e8-481f-af35-a8130def854d")
 			(effects
 				(font
@@ -1623,12 +1625,6 @@
 		(path "/239da1ef-5cb3-45da-a314-8b55bc97ee3a")
 		(sheetname "/")
 		(sheetfile "LLV1.kicad_sch")
-		(units
-			(unit
-				(name "A")
-				(pins "2" "3" "1" "7" "11" "4" "9" "10" "12" "8" "14" "6" "5" "13")
-			)
-		)
 		(attr through_hole)
 		(duplicate_pad_numbers_are_jumpers no)
 		(fp_line
@@ -1639,7 +1635,7 @@
 				(type default)
 			)
 			(layer "B.SilkS")
-			(uuid "e124d8e9-563a-4907-822a-eb81d5c45689")
+			(uuid "67c18927-e5cb-45a7-ba3d-14e818ca8c19")
 		)
 		(fp_line
 			(start 10.15 8)
@@ -1649,7 +1645,7 @@
 				(type default)
 			)
 			(layer "B.SilkS")
-			(uuid "8d771878-92c2-4967-8283-155cf502d4f6")
+			(uuid "3e287742-84bb-44fc-be24-05854fd5570e")
 		)
 		(fp_line
 			(start -10.15 -7.2)
@@ -1659,7 +1655,7 @@
 				(type default)
 			)
 			(layer "B.SilkS")
-			(uuid "61222fb3-0fac-4d48-a128-5b9e112afa06")
+			(uuid "ed91c98b-b83b-4e6d-bcd2-ea83a6536b35")
 		)
 		(fp_line
 			(start 10.15 -7.2)
@@ -1669,13 +1665,39 @@
 				(type default)
 			)
 			(layer "B.SilkS")
-			(uuid "8db0fed8-8394-4311-99cc-5ca964d237e6")
+			(uuid "15e19f63-27c2-4afe-9d5c-880b816c4aa9")
+		)
+		(fp_text user "VIN"
+			(at -3.429 2.413 0)
+			(unlocked yes)
+			(layer "B.SilkS")
+			(uuid "c34cb5fc-d051-4611-baf7-865fe3b1386b")
+			(effects
+				(font
+					(size 0.7 0.7)
+					(thickness 0.1)
+				)
+				(justify left bottom mirror)
+			)
 		)
 		(fp_text user "VIN"
 			(at -3.429 2.413 0)
 			(unlocked yes)
 			(layer "B.SilkS")
 			(uuid "f44d859f-d8fc-4acd-abcd-1a87950e9359")
+			(effects
+				(font
+					(size 0.7 0.7)
+					(thickness 0.1)
+				)
+				(justify left bottom mirror)
+			)
+		)
+		(fp_text user "SDA"
+			(at -0.889 2.159 0)
+			(unlocked yes)
+			(layer "B.SilkS")
+			(uuid "a36e988d-fae7-4506-bcde-a09710a959d1")
 			(effects
 				(font
 					(size 0.7 0.7)
@@ -1710,6 +1732,32 @@
 				(justify left bottom mirror)
 			)
 		)
+		(fp_text user "SCL"
+			(at 1.651 2.159 0)
+			(unlocked yes)
+			(layer "B.SilkS")
+			(uuid "6e73dfdf-ecbc-4e1b-b22d-c35fe450857f")
+			(effects
+				(font
+					(size 0.7 0.7)
+					(thickness 0.1)
+				)
+				(justify left bottom mirror)
+			)
+		)
+		(fp_text user "GND"
+			(at 4.191 2.032 0)
+			(unlocked yes)
+			(layer "B.SilkS")
+			(uuid "23b9917d-aad4-4b1d-b310-0c16d7ddbe90")
+			(effects
+				(font
+					(size 0.7 0.7)
+					(thickness 0.1)
+				)
+				(justify left bottom mirror)
+			)
+		)
 		(fp_text user "GND"
 			(at 4.191 2.032 0)
 			(unlocked yes)
@@ -1721,19 +1769,6 @@
 					(thickness 0.1)
 				)
 				(justify left bottom mirror)
-			)
-		)
-		(fp_text user "MAX30102 BREAKOUT MODULE"
-			(at 0 -2.5 90)
-			(unlocked yes)
-			(layer "B.Fab")
-			(uuid "6e73dfdf-ecbc-4e1b-b22d-c35fe450857f")
-			(effects
-				(font
-					(size 1 1)
-					(thickness 0.15)
-				)
-				(justify mirror)
 			)
 		)
 		(pad "2" thru_hole circle
@@ -1782,7 +1817,7 @@
 		)
 		(zone
 			(layer "B.SilkS")
-			(uuid "dfc40220-5fe9-4bac-84c3-ee3ef5ed5d23")
+			(uuid "e061f23c-39be-446d-a7cf-c7ba255430c9")
 			(hatch edge 0.5)
 			(connect_pads
 				(clearance 0)
