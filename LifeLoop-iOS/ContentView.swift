@@ -12,9 +12,12 @@ struct ContentView: View {
     @State private var selectedDevice: KnownDevice?
     @State private var selectedTab: AppTab = .devices
 
-    // GPS Logic
+    // GPS Logic & Data Managers
     @StateObject private var GPS = LocationManager()
     @StateObject private var familyManager = FamilyDeviceManager()
+    
+    // EMS Manager
+    @StateObject private var timerManager = EMSTimerManager()
 
     private let background = Color(red: 5/255, green: 15/255, blue: 29/255)
     private let surface = Color(red: 13/255, green: 27/255, blue: 43/255)
@@ -53,6 +56,9 @@ struct ContentView: View {
             }
 
             tabBar
+        }
+        .fullScreenCover(isPresented: $timerManager.isActive){
+            EMSCountdown(timerManager: timerManager)
         }
         .preferredColorScheme(.dark)
         .sheet(isPresented: $isShowingAddDeviceSheet) {

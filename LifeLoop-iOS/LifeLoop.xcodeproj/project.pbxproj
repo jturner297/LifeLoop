@@ -9,6 +9,15 @@
 /* Begin PBXBuildFile section */
 		580C66FA3048F9CF00C85FC7 /* LocationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 580C66F93048F9C700C85FC7 /* LocationManager.swift */; };
 		58386C30305301E1008BFE72 /* Assests.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 58386C2F305301E1008BFE72 /* Assests.xcassets */; };
+		58A9C608305A219D007C41DC /* FamilyDevicesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58A9C604305A219D007C41DC /* FamilyDevicesView.swift */; };
+		58A9C609305A219D007C41DC /* FamilyAPIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58A9C606305A219D007C41DC /* FamilyAPIClient.swift */; };
+		58A9C60A305A219D007C41DC /* FamilyDeviceManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58A9C603305A219D007C41DC /* FamilyDeviceManager.swift */; };
+		58A9C60D305A2806007C41DC /* EMSCountdown.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58A9C60C305A2801007C41DC /* EMSCountdown.swift */; };
+		58A9C611305B6E43007C41DC /* EMSTimerManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58A9C610305B6E3E007C41DC /* EMSTimerManager.swift */; };
+		58A9C614305B84A4007C41DC /* Futura Condensed.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 58A9C612305B84A4007C41DC /* Futura Condensed.ttf */; };
+		58A9C615305B84A4007C41DC /* Helvetica-Neue-Condensed-Black.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 58A9C613305B84A4007C41DC /* Helvetica-Neue-Condensed-Black.ttf */; };
+		58A9C617305B8626007C41DC /* HexagonGrid.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58A9C616305B8603007C41DC /* HexagonGrid.swift */; };
+		58A9C619305B86AD007C41DC /* MarqueeText.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58A9C618305B86A4007C41DC /* MarqueeText.swift */; };
 		58EEBDCF3049B829007BB825 /* MapScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58EEBDCE3049B829007BB825 /* MapScreen.swift */; };
 		A10000000000000000000001 /* LifeLoopApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000001 /* LifeLoopApp.swift */; };
 		A10000000000000000000002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000002 /* ContentView.swift */; };
@@ -19,6 +28,15 @@
 /* Begin PBXFileReference section */
 		580C66F93048F9C700C85FC7 /* LocationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocationManager.swift; sourceTree = "<group>"; };
 		58386C2F305301E1008BFE72 /* Assests.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assests.xcassets; sourceTree = "<group>"; };
+		58A9C603305A219D007C41DC /* FamilyDeviceManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FamilyDeviceManager.swift; sourceTree = "<group>"; };
+		58A9C604305A219D007C41DC /* FamilyDevicesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FamilyDevicesView.swift; sourceTree = "<group>"; };
+		58A9C606305A219D007C41DC /* FamilyAPIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FamilyAPIClient.swift; sourceTree = "<group>"; };
+		58A9C60C305A2801007C41DC /* EMSCountdown.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EMSCountdown.swift; sourceTree = "<group>"; };
+		58A9C610305B6E3E007C41DC /* EMSTimerManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EMSTimerManager.swift; sourceTree = "<group>"; };
+		58A9C612305B84A4007C41DC /* Futura Condensed.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "Futura Condensed.ttf"; sourceTree = "<group>"; };
+		58A9C613305B84A4007C41DC /* Helvetica-Neue-Condensed-Black.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "Helvetica-Neue-Condensed-Black.ttf"; sourceTree = "<group>"; };
+		58A9C616305B8603007C41DC /* HexagonGrid.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HexagonGrid.swift; sourceTree = "<group>"; };
+		58A9C618305B86A4007C41DC /* MarqueeText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarqueeText.swift; sourceTree = "<group>"; };
 		58EEBDCE3049B829007BB825 /* MapScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapScreen.swift; sourceTree = "<group>"; };
 		B10000000000000000000001 /* LifeLoopApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LifeLoopApp.swift; sourceTree = "<group>"; };
 		B10000000000000000000002 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
@@ -48,6 +66,36 @@
 			path = Location;
 			sourceTree = "<group>";
 		};
+		58A9C605305A219D007C41DC /* Family */ = {
+			isa = PBXGroup;
+			children = (
+				58A9C603305A219D007C41DC /* FamilyDeviceManager.swift */,
+				58A9C604305A219D007C41DC /* FamilyDevicesView.swift */,
+			);
+			path = Family;
+			sourceTree = "<group>";
+		};
+		58A9C607305A219D007C41DC /* Networking */ = {
+			isa = PBXGroup;
+			children = (
+				58A9C606305A219D007C41DC /* FamilyAPIClient.swift */,
+			);
+			path = Networking;
+			sourceTree = "<group>";
+		};
+		58A9C60B305A27F6007C41DC /* EMS */ = {
+			isa = PBXGroup;
+			children = (
+				58A9C618305B86A4007C41DC /* MarqueeText.swift */,
+				58A9C616305B8603007C41DC /* HexagonGrid.swift */,
+				58A9C610305B6E3E007C41DC /* EMSTimerManager.swift */,
+				58A9C60C305A2801007C41DC /* EMSCountdown.swift */,
+				58A9C612305B84A4007C41DC /* Futura Condensed.ttf */,
+				58A9C613305B84A4007C41DC /* Helvetica-Neue-Condensed-Black.ttf */,
+			);
+			path = EMS;
+			sourceTree = "<group>";
+		};
 		D10000000000000000000001 = {
 			isa = PBXGroup;
 			children = (
@@ -59,6 +107,9 @@
 		D10000000000000000000002 /* LifeLoop */ = {
 			isa = PBXGroup;
 			children = (
+				58A9C60B305A27F6007C41DC /* EMS */,
+				58A9C605305A219D007C41DC /* Family */,
+				58A9C607305A219D007C41DC /* Networking */,
 				580C66F83048F98C00C85FC7 /* Location */,
 				B10000000000000000000001 /* LifeLoopApp.swift */,
 				B10000000000000000000002 /* ContentView.swift */,
@@ -153,6 +204,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				58386C30305301E1008BFE72 /* Assests.xcassets in Resources */,
+				58A9C614305B84A4007C41DC /* Futura Condensed.ttf in Resources */,
+				58A9C615305B84A4007C41DC /* Helvetica-Neue-Condensed-Black.ttf in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -163,12 +216,19 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				58A9C611305B6E43007C41DC /* EMSTimerManager.swift in Sources */,
 				58EEBDCF3049B829007BB825 /* MapScreen.swift in Sources */,
 				A10000000000000000000001 /* LifeLoopApp.swift in Sources */,
 				A10000000000000000000002 /* ContentView.swift in Sources */,
+				58A9C60D305A2806007C41DC /* EMSCountdown.swift in Sources */,
 				580C66FA3048F9CF00C85FC7 /* LocationManager.swift in Sources */,
 				A10000000000000000000003 /* LifeLoopState.swift in Sources */,
+				58A9C608305A219D007C41DC /* FamilyDevicesView.swift in Sources */,
+				58A9C617305B8626007C41DC /* HexagonGrid.swift in Sources */,
+				58A9C609305A219D007C41DC /* FamilyAPIClient.swift in Sources */,
+				58A9C60A305A219D007C41DC /* FamilyDeviceManager.swift in Sources */,
 				A10000000000000000000004 /* BLEMonitor.swift in Sources */,
+				58A9C619305B86AD007C41DC /* MarqueeText.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -284,7 +344,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = LifeLoop/Info.plist;
+				INFOPLIST_FILE = Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = app.ShortCircuit.LifeLoop;
@@ -305,7 +365,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = LifeLoop/Info.plist;
+				INFOPLIST_FILE = Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = app.ShortCircuit.LifeLoop;
