@@ -59,7 +59,7 @@ struct EMSCountdown: View {
                 
                 Spacer()
                 
-                // The NGE Warning Tape Block
+                // Warning Tape Block
                 VStack(spacing: 0) {
                     Rectangle()
                         .fill(Color.red)

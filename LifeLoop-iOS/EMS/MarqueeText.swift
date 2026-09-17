@@ -1,10 +1,3 @@
-//
-//  MarqueeText.swift
-//  LifeLoop
-//
-//  Created by Jes206 on 9/16/26.
-//
-
 import SwiftUI
 
 struct MarqueeText: View {
@@ -13,17 +6,18 @@ struct MarqueeText: View {
     @State private var offset: CGFloat = 0
     
     var body: some View {
-        // Repeat the text enough times so it doesn't run out during the loop
-        Text(String(repeating: "\(text)   ", count: 15))
+        // 1. Repeat the string 100 times so it creates a massive, unending line of text
+        Text(String(repeating: "\(text)      ", count: 100))
             .font(.custom(fontName, size: 28))
             .foregroundStyle(Color.red)
             .lineLimit(1)
             .fixedSize()
             .offset(x: offset)
             .onAppear {
-                // Infinite linear scrolling animation
-                withAnimation(.linear(duration: 4.0).repeatForever(autoreverses: false)) {
-                    offset = -250
+                // 2. Animate it over 60 seconds.
+                // Since the countdown is only 30s, the user will literally never see the reset jump.
+                withAnimation(.linear(duration: 60.0).repeatForever(autoreverses: false)) {
+                    offset = -4000 // Moves a massive distance to keep the speed steady
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
