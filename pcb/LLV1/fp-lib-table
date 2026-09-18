@@ -3,4 +3,5 @@
 	(lib (name "Seeed_Studio_XIAO_Series") (type "KiCad") (uri "C:/Users/Justin Turner/Documents/Projects/LifeLoop/pcb/Materials/New_XIAO_Series_Footprints/Seeed_Studio_XIAO_Series.pretty") (options "") (descr ""))
 	(lib (name "MAX30102_BREAKOUT") (type "KiCad") (uri "C:/Users/Justin Turner/Documents/Projects/LifeLoop/PCB/Materials/MAX30102_BREAKOUT.pretty") (options "") (descr ""))
 	(lib (name "easyeda2kicad") (type "KiCad") (uri "C:/Users/Justin Turner/Documents/Projects/LifeLoop/PCB/Materials/easyeda2kicad.pretty") (options "") (descr ""))
+	(lib (name "Materials") (type "KiCad") (uri "C:/Users/Justin Turner/Documents/Projects/LifeLoop/pcb/Materials") (options "") (descr ""))
 )
