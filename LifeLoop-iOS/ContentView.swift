@@ -17,7 +17,7 @@ struct ContentView: View {
     @StateObject private var familyManager = FamilyDeviceManager()
     
     // EMS Manager
-    @StateObject private var timerManager = EMSTimerManager()
+    @StateObject private var timerManager = EMSTimerManager.shared
 
     private let background = Color(red: 5/255, green: 15/255, blue: 29/255)
     private let surface = Color(red: 13/255, green: 27/255, blue: 43/255)
@@ -31,14 +31,45 @@ struct ContentView: View {
 
     var body: some View {
         ZStack(alignment: .bottom) {
-            switch selectedTab {
-            case .devices:
-                dashboardView
-            case .family:
-                FamilyDevicesView(
-                    familyManager: familyManager,
-                    localDevices: bleMonitor.knownDevices,
-                    deviceStatuses: bleMonitor.deviceStatuses,
+            Group {
+                switch selectedTab {
+                case .devices:
+                    dashboardView
+                case .family:
+                    FamilyDevicesView(
+                        familyManager: familyManager,
+                        localDevices: bleMonitor.knownDevices,
+                        deviceStatuses: bleMonitor.deviceStatuses,
+                        background: background,
+                        surface: surface,
+                        primaryText: primaryText,
+                        secondaryText: secondaryText,
+                        teal: teal,
+                        warning: warning
+                    )
+                case .map:
+                    MapScreen(
+                        targetLat: GPS.latitude,
+                        targetLon: GPS.longitude,
+                        statusText: GPS.statusText,
+                        familyDevices: familyManager.familyDevices
+                    )
+                }
+            }
+            .sheet(isPresented: $isShowingAddDeviceSheet) {
+                AddDeviceSheet(
+                    bleMonitor: bleMonitor,
+                    background: background,
+                    surface: surface,
+                    primaryText: primaryText,
+                    secondaryText: secondaryText,
+                    teal: teal
+                )
+            }
+            .sheet(item: $selectedDevice) { device in
+                DeviceProfileSheet(
+                    device: device,
+                    bleMonitor: bleMonitor,
                     background: background,
                     surface: surface,
                     primaryText: primaryText,
@@ -46,43 +77,20 @@ struct ContentView: View {
                     teal: teal,
                     warning: warning
                 )
-            case .map:
-                MapScreen(
-                    targetLat: GPS.latitude,
-                    targetLon: GPS.longitude,
-                    statusText: GPS.statusText,
-                    familyDevices: familyManager.familyDevices
-                )
             }
 
             tabBar
+        }
+        .onChange(of: timerManager.isActive) { isEmergency in
+            if isEmergency {
+                isShowingAddDeviceSheet = false
+                selectedDevice = nil
+            }
         }
         .fullScreenCover(isPresented: $timerManager.isActive){
             EMSCountdown(timerManager: timerManager)
         }
         .preferredColorScheme(.dark)
-        .sheet(isPresented: $isShowingAddDeviceSheet) {
-            AddDeviceSheet(
-                bleMonitor: bleMonitor,
-                background: background,
-                surface: surface,
-                primaryText: primaryText,
-                secondaryText: secondaryText,
-                teal: teal
-            )
-        }
-        .sheet(item: $selectedDevice) { device in
-            DeviceProfileSheet(
-                device: device,
-                bleMonitor: bleMonitor,
-                background: background,
-                surface: surface,
-                primaryText: primaryText,
-                secondaryText: secondaryText,
-                teal: teal,
-                warning: warning
-            )
-        }
         .onReceive(timer) { _ in
             bleMonitor.checkOfflineDevices()
             familyManager.uploadLocalDevices(
@@ -211,10 +219,10 @@ struct ContentView: View {
                 .foregroundStyle(secondaryText)
             
             // Current GPS coordinates displayed in header
-                      Text(GPS.currentAddress)
-                          .font(.system(size: 14, weight: .semibold))
-                          .foregroundStyle(teal)
-                          .padding(.top, 2)
+            Text(GPS.currentAddress)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(teal)
+                .padding(.top, 2)
         }
     }
 

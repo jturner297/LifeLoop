@@ -40,11 +40,12 @@ struct EMSCountdown: View {
                 
                 VStack(spacing: 10) {
                     // Warning Header
-                    Text("FALL DETECTED")
-                        .font(.custom(mainWarningFont, size: 50)) // Scaled down to prevent crowding
+                    Text(timerManager.triggerReason)
+                        .font(.custom(mainWarningFont, size: 45)) // Scaled down to prevent crowding
                         .foregroundStyle(Color.white)
                         .shadow(color: .black, radius: 2, x: 2, y: 2)
-                    
+                        .multilineTextAlignment(.center)
+                
                     Text("EMS will be dispatched in:")
                         .font(.custom(secondaryFont, size: 22))
                         .foregroundStyle(Color.white) // Matched to the red in the target image

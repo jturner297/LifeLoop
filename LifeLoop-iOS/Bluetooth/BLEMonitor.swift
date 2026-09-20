@@ -14,31 +14,31 @@ final class BLEMonitor: NSObject, ObservableObject {
     static let txCharacteristicUUID = CBUUID(string: "6E400003-B5A3-F393-E0A9-E50E24DCCA9E")
     
     private let locationManager = LocationManager()
-
+    
     @Published private(set) var bluetoothStateText = "Starting Bluetooth…"
     @Published private(set) var isScanning = false
     @Published private(set) var discoveredPeripherals: [DiscoveredPeripheral] = []
     @Published private(set) var knownDevices: [KnownDevice] = []
     @Published private(set) var deviceStatuses: [String: DeviceStatus] = [:]
     @Published private(set) var connectionLog: [String] = []
-
+    
     private var centralManager: CBCentralManager!
     private var connectedPeripherals: [String: CBPeripheral] = [:]
     private var txCharacteristics: [String: CBCharacteristic] = [:]
     private let deviceStore = DeviceStore()
-
+    
     var isConnected: Bool {
         deviceStatuses.values.contains { $0.isConnected }
     }
-
+    
     var connectedDeviceName: String? {
         deviceStatuses.values.first(where: { $0.isConnected })?.name
     }
-
+    
     private func savedName(for deviceID: String, fallback: String) -> String {
         knownDevices.first(where: { $0.id == deviceID })?.name ?? fallback
     }
-
+    
     override init() {
         super.init()
         knownDevices = deviceStore.load()
@@ -51,16 +51,16 @@ final class BLEMonitor: NSObject, ObservableObject {
             options: [CBCentralManagerOptionRestoreIdentifierKey: "LifeLoopCentralManager"]
         )
     }
-
+    
     // MARK: Scanning
-
+    
     func startScanning() {
         guard centralManager.state == .poweredOn else {
             bluetoothStateText = "Bluetooth is not ready"
             log("Scan blocked — Bluetooth is not powered on")
             return
         }
-
+        
         discoveredPeripherals.removeAll()
         isScanning = true
         bluetoothStateText = "Scanning for LifeLoop devices…"
@@ -70,7 +70,7 @@ final class BLEMonitor: NSObject, ObservableObject {
             options: [CBCentralManagerScanOptionAllowDuplicatesKey: true]
         )
     }
-
+    
     func stopScanning() {
         centralManager.stopScan()
         isScanning = false
@@ -79,9 +79,9 @@ final class BLEMonitor: NSObject, ObservableObject {
             bluetoothStateText = "Scan stopped"
         }
     }
-
+    
     // MARK: Connecting
-
+    
     /// Adds a scanned peripheral to the saved device list and immediately
     /// attempts to connect to it.
     func addKnownDevice(_ discovered: DiscoveredPeripheral) {
@@ -90,7 +90,7 @@ final class BLEMonitor: NSObject, ObservableObject {
             knownDevices.append(device)
             deviceStore.save(knownDevices)
         }
-
+        
         let displayName = savedName(for: device.id, fallback: device.name)
         if deviceStatuses[device.id] == nil {
             deviceStatuses[device.id] = DeviceStatus(deviceID: device.id, name: displayName)
@@ -98,7 +98,7 @@ final class BLEMonitor: NSObject, ObservableObject {
         log("Added \(displayName) to devices")
         connect(peripheral: discovered.peripheral, name: displayName)
     }
-
+    
     /// Reconnects to a previously-added device. Only works if it's
     /// currently advertising / in range — CoreBluetooth can't dial a
     /// peripheral it hasn't seen recently.
@@ -112,24 +112,24 @@ final class BLEMonitor: NSObject, ObservableObject {
             bluetoothStateText = "\(device.name) not found nearby"
         }
     }
-
+    
     func disconnect(deviceID: String) {
         guard let peripheral = connectedPeripherals[deviceID] else { return }
         centralManager.cancelPeripheralConnection(peripheral)
     }
-
+    
     func disconnect() {
         for peripheral in connectedPeripherals.values {
             centralManager.cancelPeripheralConnection(peripheral)
         }
     }
-
+    
     func checkOfflineDevices(timeout: TimeInterval = 60) {
         let now = Date()
         for (id, status) in deviceStatuses where status.isConnected {
             let peripheralDisconnected = connectedPeripherals[id]?.state != .connected
             let telemetryTimedOut = status.lastUpdated.map { now.timeIntervalSince($0) > timeout } ?? false
-
+            
             if peripheralDisconnected || telemetryTimedOut {
                 updateStatus(for: id) { updatedStatus in
                     updatedStatus.isConnected = false
@@ -137,7 +137,7 @@ final class BLEMonitor: NSObject, ObservableObject {
                 }
                 connectedPeripherals.removeValue(forKey: id)
                 txCharacteristics.removeValue(forKey: id)
-
+                
                 if let lastUpdated = status.lastUpdated {
                     let timeString = lastUpdated.formatted(date: .omitted, time: .shortened)
                     log("\(status.name) is offline since \(timeString)")
@@ -147,12 +147,12 @@ final class BLEMonitor: NSObject, ObservableObject {
             }
         }
     }
-
+    
     func renameKnownDevice(_ device: KnownDevice, name: String) {
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedName.isEmpty,
               let index = knownDevices.firstIndex(where: { $0.id == device.id }) else { return }
-
+        
         knownDevices[index].name = trimmedName
         deviceStore.save(knownDevices)
         updateStatus(for: device.id) { status in
@@ -160,7 +160,7 @@ final class BLEMonitor: NSObject, ObservableObject {
         }
         log("Renamed device to \(trimmedName)")
     }
-
+    
     func removeKnownDevice(_ device: KnownDevice) {
         knownDevices.removeAll { $0.id == device.id }
         deviceStore.save(knownDevices)
@@ -170,7 +170,7 @@ final class BLEMonitor: NSObject, ObservableObject {
         }
         log("Removed \(device.name)")
     }
-
+    
     private func connect(peripheral: CBPeripheral, name: String) {
         let id = peripheral.identifier.uuidString
         peripheral.delegate = self
@@ -182,23 +182,42 @@ final class BLEMonitor: NSObject, ObservableObject {
         log("Connecting to \(name)…")
         centralManager.connect(peripheral)
     }
-
+    
     // MARK: Telemetry parsing
-
+    
     private func handleTelemetry(_ data: Data, deviceID: String) {
         guard let payload = String(data: data, encoding: .utf8) else { return }
         let cleaned = payload.trimmingCharacters(in: .whitespacesAndNewlines)
         let fallback = deviceStatuses[deviceID]?.lifeLoopState ?? LifeLoopState()
         let newState = parse(cleaned, fallback: fallback)
-
+        
         updateStatus(for: deviceID) { status in
             status.lastPayload = cleaned
             status.lastUpdated = Date()
             if let newState {
                 status.lifeLoopState = newState
+                // Isolate the fall trigger
+                let hasFallen = newState.state == 2
+                
+                // Cardiac window that ignores 0
+                let hasCardiacEvent = newState.bpm > 0 && newState.bpm <= 40
+                
+                // Combine triggers and push to main thread
+                if hasCardiacEvent {
+                    DispatchQueue.main.async {
+                        EMSTimerManager.shared.startCountdown(reason: "CARDIAC \n ABNORMALITY \n DETECTED")
+                        }
+                } else if hasFallen {
+                    DispatchQueue.main.async {
+                        EMSTimerManager.shared.startCountdown(reason: "SEVERE FALL \nDETECTED")
+                    }
+                }
+                
             }
         }
     }
+
+    
 
     /// Flexible parser for common prototype formats.
     /// Supported examples:

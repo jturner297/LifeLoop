@@ -7,7 +7,7 @@ struct MarqueeText: View {
     
     var body: some View {
         // 1. Repeat the string 100 times so it creates a massive, unending line of text
-        Text(String(repeating: "\(text)      ", count: 100))
+        Text(String(repeating: "\(text)      ", count: 20))
             .font(.custom(fontName, size: 28))
             .foregroundStyle(Color.red)
             .lineLimit(1)
@@ -16,8 +16,8 @@ struct MarqueeText: View {
             .onAppear {
                 // 2. Animate it over 60 seconds.
                 // Since the countdown is only 30s, the user will literally never see the reset jump.
-                withAnimation(.linear(duration: 60.0).repeatForever(autoreverses: false)) {
-                    offset = -4000 // Moves a massive distance to keep the speed steady
+                withAnimation(.linear(duration: 15.0).repeatForever(autoreverses: false)) {
+                    offset = -1000 // Moves a massive distance to keep the speed steady
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
