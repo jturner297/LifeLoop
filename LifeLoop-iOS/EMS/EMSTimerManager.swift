@@ -10,17 +10,30 @@ import Combine
 
 class EMSTimerManager: ObservableObject {
     
+    static let shared = EMSTimerManager()
+    
     //@Published allows SwiftUI view to see these variables
-    @Published var timeRemaining: Int = 30
+    @Published var timeRemaining = 30
     @Published var isActive: Bool = false
     @Published var isAlertTriggered: Bool = false
+    @Published var isCountingDown = false
+    @Published var triggerReason: String = "EMERGENCY DETECTED"
     
     // Actual iOS timer object
     private var timer: Timer?
     
     // Timer countdown function
-    func startCountdown() {
+    func startCountdown(reason: String) {
         // Fall has been detected (isActive) but set the isAlertTriggered to false so the emergency protocol doesn't start immediately
+        
+        guard !isCountingDown else { return }
+        
+        //Store the message for the UI
+        self.triggerReason = reason
+        
+        isCountingDown = true
+        timeRemaining = 30
+        
         isActive = true
         isAlertTriggered = false
         
@@ -36,19 +49,21 @@ class EMSTimerManager: ObservableObject {
             if self.timeRemaining > 0 {
                 self.timeRemaining -= 1
                 
-                // Users did not cancel countdown (physical or hardware), so kill timer, the countdown is over (isActive), and now call EMS (isAlertTriggered)
+            // Users did not cancel countdown (physical or hardware), so kill timer, the countdown is over (isActive), and now call EMS (isAlertTriggered)
                 
-            }else {
+            } else {
                 self.timer?.invalidate()
                 self.isActive = false
                 self.isAlertTriggered = true
+                self.isCountingDown = false
             }
             
         }
     }
+    
     /*
      Function that allows for the cancellation of the countdown
-     Resets the timer back to 30, and sets the EMS dispatch to false (isAlertTriggered) 
+     Resets the timer back to 30, and sets the EMS dispatch to false (isAlertTriggered)
      */
     
     func cancelCountdown() {
@@ -56,5 +71,6 @@ class EMSTimerManager: ObservableObject {
         isActive = false
         timeRemaining = 30
         isAlertTriggered = false
-        }
+        isCountingDown = false
+    }
 }
