@@ -18,17 +18,32 @@ MAX30105 particleSensor;
 // ── LED State Tracking ────────────────────────────────────────────────────────
 bool ledRedState = true; // Active-LOW (true = HIGH = OFF)
 
-// ── Fall Detection Variables ──────────────────────────────────────────────────
+// ── Fall Detection Parameters & Thresholds ────────────────────────────────────
+// Configurable thresholds tuned for wearable placement
+const float FREE_FALL_THRESHOLD    = 5.0f;     // m/s^2 (~0.5G drop threshold)
+const float IMPACT_ACCEL_THRESHOLD = 24.5f;    // m/s^2 (~2.5G impact peak)
+const float IMPACT_GYRO_THRESHOLD  = 60.0f;     // deg/s rotational motion
+
+// FIX: Raised cancellation limits so ground bounce/vibration won't reset to Normal
+const float RECOVERY_ACCEL_CANCEL  = 22.0f;    // m/s^2 (~2.24G deliberate active motion)
+const float RECOVERY_GYRO_CANCEL   = 160.0f;   // deg/s deliberate rotation
+
+// State timing windows (milliseconds)
+const unsigned long FREE_FALL_TIMEOUT      = 800;  // Max duration allowed for freefall
+const unsigned long POST_IMPACT_SETTLE     = 1500; // Window to allow hardware bounce/impact noise to settle
+const unsigned long OBSERVATION_WINDOW     = 4000; // Post-impact window to monitor movement vs. stillness
+const unsigned long STILLNESS_EMERGENCY_TH = 6000; // Continuous stillness post-impact required to confirm a fall
+
 enum FallDetection { Normal, Free_Falling, Impact, Recovering, Emergency };
 FallDetection fallState = Normal;
-unsigned long fallTime = 0;
-unsigned long stationaryTime = 0;
-unsigned long recoveryStartTime = 0;
-unsigned long stableStartTime = 0;
+
+unsigned long fallStartTime = 0;
+unsigned long impactTime = 0;
+unsigned long observationStartTime = 0;
 unsigned long lastBlinkTime = 0;
 
 unsigned long lastMpuReadTime = 0;
-const unsigned long MPU_READ_INTERVAL = 20; // 50Hz to catch rapid impacts
+const unsigned long MPU_READ_INTERVAL = 20; // 50Hz sample rate
 
 float magnitude(float x, float y, float z) {
   return sqrt(x*x + y*y + z*z);
@@ -36,7 +51,7 @@ float magnitude(float x, float y, float z) {
 
 // ── Heart Rate Variables (DSP) ────────────────────────────────────────────────
 unsigned long lastHrReadTime = 0;
-const unsigned long HR_READ_INTERVAL = 5; // 200Hz matches sensor setup
+const unsigned long HR_READ_INTERVAL = 5; // 200Hz PPG sampling
 
 #define MA_SIZE 16
 long maBuffer[MA_SIZE] = {0};
@@ -100,10 +115,10 @@ void resetHR() {
 }
 
 // ── Edge Filtering Variables ──────────────────────────────────────────────────
-float lastSentBPM = -100.0; // Initialized low to force the first transmission
+float lastSentBPM = -100.0;
 FallDetection lastSentFallState = Normal;
 unsigned long lastKeepAliveTime = 0;
-const unsigned long KEEP_ALIVE_INTERVAL = 15000; // 15 seconds
+const unsigned long KEEP_ALIVE_INTERVAL = 15000;
 
 // ── Setup ─────────────────────────────────────────────────────────────────────
 void setup() {
@@ -133,7 +148,6 @@ void setup() {
     while (1);
   }
 
-  // Generate unique dynamic name
   String mac = BLE.address(); 
   String idSuffix = mac.substring(12, 14) + mac.substring(15, 17);
   idSuffix.toUpperCase();
@@ -145,9 +159,9 @@ void setup() {
   BLE.addService(lifeLoopService);
 
   txCharacteristic.writeValue("");
-  
   BLE.advertise();
-  myIMU.writeRegister(LSM6DS3_ACC_GYRO_CTRL1_XL, 0x4C);
+  
+  myIMU.writeRegister(LSM6DS3_ACC_GYRO_CTRL1_XL, 0x4C); // Set accelerometer sample rate
   Serial.println("System Ready. BLE Advertising as: " + deviceName);
 }
 
@@ -192,24 +206,32 @@ void loop() {
     }
   }
 
-  // 2. Process Fall Detection State Machine (Gated to 50Hz)
+  // 2. Process Fall Detection Pipeline (Gated to 50Hz)
   if (now - lastMpuReadTime >= MPU_READ_INTERVAL) {
     lastMpuReadTime = now;
 
+    // Read 3-Axis Accelerometer (converted to m/s^2)
     float ax = myIMU.readFloatAccelX() * 9.80665f;
     float ay = myIMU.readFloatAccelY() * 9.80665f;
     float az = myIMU.readFloatAccelZ() * 9.80665f;
-    float magValues = magnitude(ax, ay, az);
+    float accMag = magnitude(ax, ay, az);
 
-switch(fallState) {
+    // Read 3-Axis Gyroscope (Degrees per second)
+    float gx = myIMU.readFloatGyroX();
+    float gy = myIMU.readFloatGyroY();
+    float gz = myIMU.readFloatGyroZ();
+    float gyroMag = magnitude(gx, gy, gz);
+
+    switch(fallState) {
       case Normal:
-        digitalWrite(LED_BLUE, LOW);
+        digitalWrite(LED_BLUE, LOW);  // Solid Blue LED
         digitalWrite(LED_RED, HIGH);
         digitalWrite(LED_GREEN, HIGH);
         ledRedState = true;
         
-        if (magValues < 5.0) { 
-          fallTime = now;
+        // STAGE 1: Free Fall Detection
+        if (accMag < FREE_FALL_THRESHOLD) { 
+          fallStartTime = now;
           fallState = Free_Falling;
         }
         break;
@@ -222,74 +244,54 @@ switch(fallState) {
           digitalWrite(LED_RED, ledRedState ? HIGH : LOW);
         }
         
-        if (magValues > 25.0) {
-          stationaryTime = now; 
+        // Impact trigger threshold check
+        if (accMag > IMPACT_ACCEL_THRESHOLD || (accMag > 18.0f && gyroMag > IMPACT_GYRO_THRESHOLD)) {
+          impactTime = now; 
           fallState = Impact;
         }
-        else if (magValues >= 8.0 && magValues <= 11.5 && (now - fallTime > 300)) {
-          fallState = Normal; 
-        }
-        else if (now - fallTime > 800) {
+        else if (now - fallStartTime > FREE_FALL_TIMEOUT) {
           fallState = Normal;
         }
         break;
 
-case Impact:
+      case Impact:
         digitalWrite(LED_BLUE, HIGH);
-        digitalWrite(LED_RED, LOW); 
+        digitalWrite(LED_RED, LOW); // Solid Red LED
         ledRedState = false;
 
-        // DEBOUNCE FIX: Ignore the physical bounce and rattle of the hard plastic 
-        // on the floor for 2000ms (2 seconds). 
-        if (now - stationaryTime < 2000) {
-           break; 
-        }
-        
-        // MOVEMENT DETECTED: Checked ONLY after the 2-second bounce window has closed.
-        // If they are getting up, they will still be moving heavily.
-        if (magValues > 13.0 || magValues < 6.0) {
-          recoveryStartTime = now;
-          stableStartTime = now;
+        // Wait post-impact settle time before active stillness observation
+        if (now - impactTime >= POST_IMPACT_SETTLE) {
+          observationStartTime = now;
           fallState = Recovering; 
-        }
-        
-        // NO MOVEMENT: If they lie perfectly motionless for 6 seconds total
-        if (now - stationaryTime >= 6000) {
-          fallState = Emergency; 
         }
         break;
 
       case Recovering:
-        // Stay solid red while we evaluate the recovery
         digitalWrite(LED_BLUE, HIGH);
-        digitalWrite(LED_RED, LOW); 
+        digitalWrite(LED_RED, LOW); // Hold Solid Red LED
 
-        // If they are actively moving (writhing or climbing up), reset the stability timer
-        if (magValues > 11.5 || magValues < 8.0) {
-          stableStartTime = now;
+        // FIX: Cancel to Normal ONLY if deliberate, heavy movement occurs
+        if (accMag > RECOVERY_ACCEL_CANCEL || gyroMag > RECOVERY_GYRO_CANCEL) {
+          fallState = Normal; // Wearer picked up device or actively moving
         }
-
-        // SUCCESS: If they achieve 4 continuous seconds of resting gravity (1G), they are standing/sitting.
-        if (now - stableStartTime > 4000) {
-          fallState = Normal;
-        }
-
-        // FAIL (WRITHING): If 15 seconds pass and they NEVER achieve 4 seconds of stillness, it's an emergency.
-        if (now - recoveryStartTime > 15000) {
-          fallState = Emergency;
+        else if (now - observationStartTime >= OBSERVATION_WINDOW) {
+          fallState = Emergency; // Confirmed Fall -> Flashing Red SOS
         }
         break;
 
       case Emergency:
-        // SOS Pulse
+        digitalWrite(LED_BLUE, HIGH);
+        digitalWrite(LED_GREEN, HIGH);
+
+        // Flashing SOS Pulse Indicator
         if (now - lastBlinkTime >= 500) { 
           lastBlinkTime = now;
           ledRedState = !ledRedState;
           digitalWrite(LED_RED, ledRedState ? HIGH : LOW);
         }
         
-        // For prototype testing: A purposeful, violent shake (> 20G) will manually cancel the emergency state
-        if (magValues > 20.0) {
+        // Manual override / test reset (high magnitude shake > 30 m/s^2)
+        if (accMag > 30.0f) {
           fallState = Normal;
         }
         break;
@@ -312,7 +314,6 @@ case Impact:
     Serial.print("Local Data -> ");
     Serial.print(msg);
 
-    // Only broadcast if the central is connected AND subscribed to the characteristic
     if (central && txCharacteristic.subscribed()) {
       txCharacteristic.writeValue(msg);
     }

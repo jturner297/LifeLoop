@@ -1,0 +1,5 @@
+"Reference","Qty","Value","DNP","Exclude from BOM","Exclude from Board","Exclude from Simulation","Exclude from Position Files","Footprint","Datasheet"
+"J2","1","Conn_01x02","","","","","${EXCLUDE_FROM_POS_FILES}","Materials:JST_S2B-PH-SM4-TB",""
+"SW1","1","SW_Push","","","","","${EXCLUDE_FROM_POS_FILES}","easyeda2kicad:KEY-SMD_4P-L4.8-W4.6-P1.70-LS6.2",""
+"U1","1","XIAO-nRF52840-SMD","","","","","${EXCLUDE_FROM_POS_FILES}","Seeed_Studio_XIAO_Series:XIAO-nRF52840-SMD",""
+"U2","1","MAX30102","","","","","${EXCLUDE_FROM_POS_FILES}","MAX30102_BREAKOUT:Untitled","https://datasheets.maximintegrated.com/en/ds/MAX30102.pdf"
