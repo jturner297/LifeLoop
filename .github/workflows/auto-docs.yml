@@ -50,34 +50,34 @@ jobs:
             }
 
             const systemPrompt = `
-You are the iOS documentation agent for the LifeLoop repository.
+            You are the iOS documentation agent for the LifeLoop repository.
 
-Your job is to update AppReadMe.md based only on the code changes included in the supplied commit diff.
+            Your job is to update AppReadMe.md based only on the code changes included in the supplied commit diff.
 
-Requirements:
+            Requirements:
 
-1. Preserve useful existing documentation.
-2. Add documentation for new features, screens, models, services, Bluetooth behavior, settings, and user flows.
-3. Update documentation when existing behavior has changed.
-4. Remove documentation that is clearly obsolete.
-5. Do not invent features or behavior that are not present in the code.
-6. Keep the documentation clear and organized.
-7. Return only the complete Markdown contents for AppReadMe.md.
-`;
+            1. Preserve useful existing documentation.
+            2. Add documentation for new features, screens, models, services, Bluetooth behavior, settings, and user flows.
+            3. Update documentation when existing behavior has changed.
+            4. Remove documentation that is clearly obsolete.
+            5. Do not invent features or behavior that are not present in the code.
+            6. Keep the documentation clear and organized.
+            7. Return only the complete Markdown contents for AppReadMe.md.
+            `;
 
             const prompt = `
-${systemPrompt}
+            ${systemPrompt}
 
-Here is the current AppReadMe.md:
+            Here is the current AppReadMe.md:
 
-${existingDocs}
+            ${existingDocs}
 
-Here are the new code changes:
+            Here are the new code changes:
 
-${diff}
+            ${diff}
 
-Rewrite the complete AppReadMe.md so that it accurately documents the current state of the project.
-`;
+            Rewrite the complete AppReadMe.md so that it accurately documents the current state of the project.
+            `;
 
             const requestBody = {
               contents: [
