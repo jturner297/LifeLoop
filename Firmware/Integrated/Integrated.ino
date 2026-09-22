@@ -4,35 +4,36 @@
 #include "MAX30105.h"
 #include <math.h>
 
+// ── Hardware Definitions ──────────────────────────────────────────────────────
+#define BUTTON_PIN D1
+
 // ── BLE Definitions ───────────────────────────────────────────────────────────
 #define SERVICE_UUID           "6E400001-B5A3-F393-E0A9-E50E24DCCA9E"
 #define CHARACTERISTIC_UUID_TX "6E400003-B5A3-F393-E0A9-E50E24DCCA9E"
+#define CHARACTERISTIC_UUID_RX "6E400002-B5A3-F393-E0A9-E50E24DCCA9E" // Added RX UUID
 
 BLEService lifeLoopService(SERVICE_UUID);
 BLECharacteristic txCharacteristic(CHARACTERISTIC_UUID_TX, BLENotify | BLERead, 32);
+// BLEWriteWithoutResponse ensures the phone doesn't wait for an acknowledgment packet, making it instant
+BLECharacteristic rxCharacteristic(CHARACTERISTIC_UUID_RX, BLEWrite | BLEWriteWithoutResponse, 32); 
 
 // ── Hardware Objects ──────────────────────────────────────────────────────────
-LSM6DS3 myIMU(I2C_MODE, 0x6A); // Onboard XIAO nRF52840 Sense IMU (Address 0x6A)
+LSM6DS3 myIMU(I2C_MODE, 0x6A); 
 MAX30105 particleSensor;
 
 // ── LED State Tracking ────────────────────────────────────────────────────────
-bool ledRedState = true; // Active-LOW (true = HIGH = OFF)
+bool ledRedState = true; 
 
 // ── Fall Detection Parameters & Thresholds ────────────────────────────────────
-// Configurable thresholds tuned for wearable placement
-const float FREE_FALL_THRESHOLD    = 5.0f;     // m/s^2 (~0.5G drop threshold)
-const float IMPACT_ACCEL_THRESHOLD = 24.5f;    // m/s^2 (~2.5G impact peak)
-const float IMPACT_GYRO_THRESHOLD  = 60.0f;     // deg/s rotational motion
+const float FREE_FALL_THRESHOLD    = 5.0f;     
+const float IMPACT_ACCEL_THRESHOLD = 24.5f;    
+const float IMPACT_GYRO_THRESHOLD  = 60.0f;    
 
-// FIX: Raised cancellation limits so ground bounce/vibration won't reset to Normal
-const float RECOVERY_ACCEL_CANCEL  = 22.0f;    // m/s^2 (~2.24G deliberate active motion)
-const float RECOVERY_GYRO_CANCEL   = 160.0f;   // deg/s deliberate rotation
-
-// State timing windows (milliseconds)
-const unsigned long FREE_FALL_TIMEOUT      = 800;  // Max duration allowed for freefall
-const unsigned long POST_IMPACT_SETTLE     = 1500; // Window to allow hardware bounce/impact noise to settle
-const unsigned long OBSERVATION_WINDOW     = 4000; // Post-impact window to monitor movement vs. stillness
-const unsigned long STILLNESS_EMERGENCY_TH = 6000; // Continuous stillness post-impact required to confirm a fall
+const unsigned long FREE_FALL_TIMEOUT      = 800;  
+const unsigned long POST_IMPACT_SETTLE     = 1500; 
+const unsigned long OBSERVATION_WINDOW     = 4000; 
+const unsigned long STILLNESS_EMERGENCY_TH = 6000; 
+const unsigned long CANCEL_HOLD_TIME       = 2000; 
 
 enum FallDetection { Normal, Free_Falling, Impact, Recovering, Emergency };
 FallDetection fallState = Normal;
@@ -41,9 +42,10 @@ unsigned long fallStartTime = 0;
 unsigned long impactTime = 0;
 unsigned long observationStartTime = 0;
 unsigned long lastBlinkTime = 0;
+unsigned long buttonPressStartTime = 0; 
 
 unsigned long lastMpuReadTime = 0;
-const unsigned long MPU_READ_INTERVAL = 20; // 50Hz sample rate
+const unsigned long MPU_READ_INTERVAL = 20; 
 
 float magnitude(float x, float y, float z) {
   return sqrt(x*x + y*y + z*z);
@@ -51,7 +53,7 @@ float magnitude(float x, float y, float z) {
 
 // ── Heart Rate Variables (DSP) ────────────────────────────────────────────────
 unsigned long lastHrReadTime = 0;
-const unsigned long HR_READ_INTERVAL = 5; // 200Hz PPG sampling
+const unsigned long HR_READ_INTERVAL = 5; 
 
 #define MA_SIZE 16
 long maBuffer[MA_SIZE] = {0};
@@ -131,6 +133,7 @@ void setup() {
   digitalWrite(LED_GREEN, HIGH);
   digitalWrite(LED_BLUE, HIGH);
 
+  pinMode(BUTTON_PIN, INPUT_PULLUP);
   Wire.begin();
 
   if (myIMU.begin() != 0) {
@@ -156,12 +159,13 @@ void setup() {
   BLE.setLocalName(deviceName.c_str());
   BLE.setAdvertisedService(lifeLoopService);
   lifeLoopService.addCharacteristic(txCharacteristic);
+  lifeLoopService.addCharacteristic(rxCharacteristic); // Attached new characteristic
   BLE.addService(lifeLoopService);
 
   txCharacteristic.writeValue("");
   BLE.advertise();
   
-  myIMU.writeRegister(LSM6DS3_ACC_GYRO_CTRL1_XL, 0x4C); // Set accelerometer sample rate
+  myIMU.writeRegister(LSM6DS3_ACC_GYRO_CTRL1_XL, 0x4C); 
   Serial.println("System Ready. BLE Advertising as: " + deviceName);
 }
 
@@ -210,13 +214,11 @@ void loop() {
   if (now - lastMpuReadTime >= MPU_READ_INTERVAL) {
     lastMpuReadTime = now;
 
-    // Read 3-Axis Accelerometer (converted to m/s^2)
     float ax = myIMU.readFloatAccelX() * 9.80665f;
     float ay = myIMU.readFloatAccelY() * 9.80665f;
     float az = myIMU.readFloatAccelZ() * 9.80665f;
     float accMag = magnitude(ax, ay, az);
 
-    // Read 3-Axis Gyroscope (Degrees per second)
     float gx = myIMU.readFloatGyroX();
     float gy = myIMU.readFloatGyroY();
     float gz = myIMU.readFloatGyroZ();
@@ -224,12 +226,12 @@ void loop() {
 
     switch(fallState) {
       case Normal:
-        digitalWrite(LED_BLUE, LOW);  // Solid Blue LED
+        digitalWrite(LED_BLUE, LOW);  
         digitalWrite(LED_RED, HIGH);
         digitalWrite(LED_GREEN, HIGH);
         ledRedState = true;
+        buttonPressStartTime = 0; 
         
-        // STAGE 1: Free Fall Detection
         if (accMag < FREE_FALL_THRESHOLD) { 
           fallStartTime = now;
           fallState = Free_Falling;
@@ -244,7 +246,6 @@ void loop() {
           digitalWrite(LED_RED, ledRedState ? HIGH : LOW);
         }
         
-        // Impact trigger threshold check
         if (accMag > IMPACT_ACCEL_THRESHOLD || (accMag > 18.0f && gyroMag > IMPACT_GYRO_THRESHOLD)) {
           impactTime = now; 
           fallState = Impact;
@@ -256,10 +257,9 @@ void loop() {
 
       case Impact:
         digitalWrite(LED_BLUE, HIGH);
-        digitalWrite(LED_RED, LOW); // Solid Red LED
+        digitalWrite(LED_RED, LOW); 
         ledRedState = false;
 
-        // Wait post-impact settle time before active stillness observation
         if (now - impactTime >= POST_IMPACT_SETTLE) {
           observationStartTime = now;
           fallState = Recovering; 
@@ -268,14 +268,21 @@ void loop() {
 
       case Recovering:
         digitalWrite(LED_BLUE, HIGH);
-        digitalWrite(LED_RED, LOW); // Hold Solid Red LED
+        digitalWrite(LED_RED, LOW); 
 
-        // FIX: Cancel to Normal ONLY if deliberate, heavy movement occurs
-        if (accMag > RECOVERY_ACCEL_CANCEL || gyroMag > RECOVERY_GYRO_CANCEL) {
-          fallState = Normal; // Wearer picked up device or actively moving
-        }
-        else if (now - observationStartTime >= OBSERVATION_WINDOW) {
-          fallState = Emergency; // Confirmed Fall -> Flashing Red SOS
+        if (digitalRead(BUTTON_PIN) == LOW) {
+          if (buttonPressStartTime == 0) {
+            buttonPressStartTime = now; 
+          } else if (now - buttonPressStartTime >= CANCEL_HOLD_TIME) {
+            fallState = Normal; 
+            buttonPressStartTime = 0;
+          }
+        } else {
+          buttonPressStartTime = 0; 
+          
+          if (now - observationStartTime >= OBSERVATION_WINDOW) {
+            fallState = Emergency; 
+          }
         }
         break;
 
@@ -283,22 +290,45 @@ void loop() {
         digitalWrite(LED_BLUE, HIGH);
         digitalWrite(LED_GREEN, HIGH);
 
-        // Flashing SOS Pulse Indicator
         if (now - lastBlinkTime >= 500) { 
           lastBlinkTime = now;
           ledRedState = !ledRedState;
           digitalWrite(LED_RED, ledRedState ? HIGH : LOW);
         }
         
-        // Manual override / test reset (high magnitude shake > 30 m/s^2)
-        if (accMag > 30.0f) {
-          fallState = Normal;
+        if (digitalRead(BUTTON_PIN) == LOW) {
+          if (buttonPressStartTime == 0) {
+            buttonPressStartTime = now; 
+          } else if (now - buttonPressStartTime >= CANCEL_HOLD_TIME) {
+            fallState = Normal; 
+            buttonPressStartTime = 0;
+          }
+        } else {
+          buttonPressStartTime = 0; 
         }
         break;
     }
   }
 
-  // 3. Edge-Filtered BLE Transmission
+  // 3. Listen for iOS Commands (Inserted exactly per software team specs)
+  if (rxCharacteristic.written()) {
+    int length = rxCharacteristic.valueLength();
+    const uint8_t* val = rxCharacteristic.value();
+    String command = "";
+    for (int i = 0; i < length; i++) {
+      command += (char)val[i];
+    }
+    
+    // Trim handles any stray newline characters iOS might append
+    command.trim(); 
+    
+    if (command == "CANCEL") {
+      fallState = Normal;
+      Serial.println("Hardware State Reset via iOS Command");
+    }
+  }
+
+  // 4. Edge-Filtered BLE Transmission
   bool stateChanged = (fallState != lastSentFallState);
   bool bpmChanged = (abs(currentBPM - lastSentBPM) >= 3.0);
   bool keepAlive = (now - lastKeepAliveTime >= KEEP_ALIVE_INTERVAL);
