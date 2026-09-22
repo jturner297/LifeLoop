@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		580C66FA3048F9CF00C85FC7 /* LocationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 580C66F93048F9C700C85FC7 /* LocationManager.swift */; };
 		58386C30305301E1008BFE72 /* Assests.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 58386C2F305301E1008BFE72 /* Assests.xcassets */; };
+		586277E83062D20D00E8E924 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 586277E73062D1E600E8E924 /* SettingsView.swift */; };
 		58A9C608305A219D007C41DC /* FamilyDevicesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58A9C604305A219D007C41DC /* FamilyDevicesView.swift */; };
 		58A9C609305A219D007C41DC /* FamilyAPIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58A9C606305A219D007C41DC /* FamilyAPIClient.swift */; };
 		58A9C60A305A219D007C41DC /* FamilyDeviceManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58A9C603305A219D007C41DC /* FamilyDeviceManager.swift */; };
@@ -28,6 +29,7 @@
 /* Begin PBXFileReference section */
 		580C66F93048F9C700C85FC7 /* LocationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocationManager.swift; sourceTree = "<group>"; };
 		58386C2F305301E1008BFE72 /* Assests.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assests.xcassets; sourceTree = "<group>"; };
+		586277E73062D1E600E8E924 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		58A9C603305A219D007C41DC /* FamilyDeviceManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FamilyDeviceManager.swift; sourceTree = "<group>"; };
 		58A9C604305A219D007C41DC /* FamilyDevicesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FamilyDevicesView.swift; sourceTree = "<group>"; };
 		58A9C606305A219D007C41DC /* FamilyAPIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FamilyAPIClient.swift; sourceTree = "<group>"; };
@@ -64,6 +66,14 @@
 				58EEBDCE3049B829007BB825 /* MapScreen.swift */,
 			);
 			path = Location;
+			sourceTree = "<group>";
+		};
+		586277E63062D16100E8E924 /* Settings */ = {
+			isa = PBXGroup;
+			children = (
+				586277E73062D1E600E8E924 /* SettingsView.swift */,
+			);
+			path = Settings;
 			sourceTree = "<group>";
 		};
 		58A9C605305A219D007C41DC /* Family */ = {
@@ -107,6 +117,7 @@
 		D10000000000000000000002 /* LifeLoop */ = {
 			isa = PBXGroup;
 			children = (
+				586277E63062D16100E8E924 /* Settings */,
 				58A9C60B305A27F6007C41DC /* EMS */,
 				58A9C605305A219D007C41DC /* Family */,
 				58A9C607305A219D007C41DC /* Networking */,
@@ -223,6 +234,7 @@
 				58A9C60D305A2806007C41DC /* EMSCountdown.swift in Sources */,
 				580C66FA3048F9CF00C85FC7 /* LocationManager.swift in Sources */,
 				A10000000000000000000003 /* LifeLoopState.swift in Sources */,
+				586277E83062D20D00E8E924 /* SettingsView.swift in Sources */,
 				58A9C608305A219D007C41DC /* FamilyDevicesView.swift in Sources */,
 				58A9C617305B8626007C41DC /* HexagonGrid.swift in Sources */,
 				58A9C609305A219D007C41DC /* FamilyAPIClient.swift in Sources */,

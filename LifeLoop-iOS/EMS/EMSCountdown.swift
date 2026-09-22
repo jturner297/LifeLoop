@@ -11,6 +11,9 @@ struct EMSCountdown: View {
     // Watch timer for any changes
     @ObservedObject var timerManager: EMSTimerManager
     
+    // Inject the BLEMonitor pipeline to send commands back to the watch
+    @EnvironmentObject var bleMonitor: BLEMonitor
+    
     @State private var isFlashing = false
     
     let mainWarningFont = "Helvetica-Neue-Condensed-Black"
@@ -69,6 +72,7 @@ struct EMSCountdown: View {
                     // Cancellation button
                     Button(action: {
                         timerManager.cancelCountdown()
+                        bleMonitor.sendCancelCommand() // Beams the reset command to the hardware
                     }) {
                         Text("CANCEL ALARM")
                             .font(.custom(mainWarningFont, size: 30))
@@ -99,5 +103,7 @@ struct EMSCountdown: View {
 struct EMSCountdown_Previews: PreviewProvider {
     static var previews: some View {
         EMSCountdown(timerManager: EMSTimerManager())
+            // Safely inject the monitor so the preview doesn't instantly crash
+            .environmentObject(BLEMonitor())
     }
 }
