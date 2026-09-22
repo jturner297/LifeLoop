@@ -12,6 +12,10 @@ import Foundation
 final class BLEMonitor: NSObject, ObservableObject {
     static let serviceUUID = CBUUID(string: "6E400001-B5A3-F393-E0A9-E50E24DCCA9E")
     static let txCharacteristicUUID = CBUUID(string: "6E400003-B5A3-F393-E0A9-E50E24DCCA9E")
+    static let rxCharacteristicUUID = CBUUID(string: "6E400002-B5A3-F393-E0A9-E50E24DCCA9E")
+    
+    // Fixed typo from rxCaharcteristics to rxCharacteristics
+    private var rxCharacteristics: [String: CBCharacteristic] = [:]
     
     private let locationManager = LocationManager()
     
@@ -137,6 +141,7 @@ final class BLEMonitor: NSObject, ObservableObject {
                 }
                 connectedPeripherals.removeValue(forKey: id)
                 txCharacteristics.removeValue(forKey: id)
+                rxCharacteristics.removeValue(forKey: id)
                 
                 if let lastUpdated = status.lastUpdated {
                     let timeString = lastUpdated.formatted(date: .omitted, time: .shortened)
@@ -197,7 +202,8 @@ final class BLEMonitor: NSObject, ObservableObject {
             if let newState {
                 status.lifeLoopState = newState
                 // Isolate the fall trigger
-                let hasFallen = newState.state == 2
+                let hasFallen = newState.state == 4
+                let isNormal = newState.state == 0
                 
                 // Cardiac window that ignores 0
                 let hasCardiacEvent = newState.bpm > 0 && newState.bpm <= 40
@@ -212,12 +218,31 @@ final class BLEMonitor: NSObject, ObservableObject {
                         EMSTimerManager.shared.startCountdown(reason: "SEVERE FALL \nDETECTED")
                     }
                 }
+                // check for hardware cancellation
+                else if isNormal {
+                    DispatchQueue.main.async{
+                        // Cancel alarm to precent unecessary UI updates
+                        if EMSTimerManager.shared.isActive {
+                            EMSTimerManager.shared.cancelCountdown()
+                        }
+                    }
+                }
                 
             }
         }
     }
 
-    
+    /// Broadcasts the hardware cancellation command down to all connected C++ peripherals
+    func sendCancelCommand() {
+        let payload = Data("CANCEL".utf8)
+        for (id, peripheral) in connectedPeripherals {
+            if let rxChar = rxCharacteristics[id] {
+                // .withoutResponse executes instantly
+                peripheral.writeValue(payload, for: rxChar, type: .withoutResponse)
+                log("Sent CANCEL command to device")
+            }
+        }
+    }
 
     /// Flexible parser for common prototype formats.
     /// Supported examples:
@@ -406,6 +431,7 @@ extension BLEMonitor: CBCentralManagerDelegate {
         }
         connectedPeripherals.removeValue(forKey: id)
         txCharacteristics.removeValue(forKey: id)
+        rxCharacteristics.removeValue(forKey: id)
         log(error == nil
             ? "Disconnected from \(peripheral.name ?? "device")"
             : "Connection lost to \(peripheral.name ?? "device"): \(error!.localizedDescription)")
@@ -432,8 +458,9 @@ extension BLEMonitor: CBPeripheralDelegate {
             log("Service discovery failed for \(peripheral.name ?? "device"): \(error?.localizedDescription ?? "unknown error")")
             return
         }
+        // Force the peripheral to discover both TX and RX characteristics
         for service in peripheral.services ?? [] where service.uuid == Self.serviceUUID {
-            peripheral.discoverCharacteristics([Self.txCharacteristicUUID], for: service)
+            peripheral.discoverCharacteristics([Self.txCharacteristicUUID, Self.rxCharacteristicUUID], for: service)
         }
     }
 
@@ -447,22 +474,30 @@ extension BLEMonitor: CBPeripheralDelegate {
             return
         }
 
-        guard let characteristic = service.characteristics?.first(where: {
-            $0.uuid == Self.txCharacteristicUUID
-        }) else {
-            log("Telemetry characteristic not found on \(peripheral.name ?? "device")")
-            return
+        let id = peripheral.identifier.uuidString
+
+        // 1. Process and save the TX characteristic (Hardware -> iOS)
+        if let txChar = service.characteristics?.first(where: { $0.uuid == Self.txCharacteristicUUID }) {
+            txCharacteristics[id] = txChar
+            log("Telemetry TX characteristic found on \(peripheral.name ?? "device")")
+            
+            if txChar.properties.contains(.notify) || txChar.properties.contains(.indicate) {
+                peripheral.setNotifyValue(true, for: txChar)
+                log("Monitoring telemetry from \(peripheral.name ?? "device")")
+            } else if txChar.properties.contains(.read) {
+                peripheral.readValue(for: txChar)
+                log("Reading telemetry from \(peripheral.name ?? "device")")
+            }
+        } else {
+            log("Telemetry TX characteristic not found on \(peripheral.name ?? "device")")
         }
 
-        let id = peripheral.identifier.uuidString
-        txCharacteristics[id] = characteristic
-        log("Telemetry characteristic found on \(peripheral.name ?? "device")")
-        if characteristic.properties.contains(.notify) || characteristic.properties.contains(.indicate) {
-            peripheral.setNotifyValue(true, for: characteristic)
-            log("Monitoring telemetry from \(peripheral.name ?? "device")")
-        } else if characteristic.properties.contains(.read) {
-            peripheral.readValue(for: characteristic)
-            log("Reading telemetry from \(peripheral.name ?? "device")")
+        // 2. Process and save the RX characteristic (iOS -> Hardware)
+        if let rxChar = service.characteristics?.first(where: { $0.uuid == Self.rxCharacteristicUUID }) {
+            rxCharacteristics[id] = rxChar
+            log("Command RX characteristic found on \(peripheral.name ?? "device")")
+        } else {
+            log("Command RX characteristic not found on \(peripheral.name ?? "device")")
         }
     }
 

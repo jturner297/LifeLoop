@@ -11,6 +11,7 @@ struct ContentView: View {
     @State private var isShowingAddDeviceSheet = false
     @State private var selectedDevice: KnownDevice?
     @State private var selectedTab: AppTab = .devices
+    @State private var showSettings = false
 
     // GPS Logic & Data Managers
     @StateObject private var GPS = LocationManager()
@@ -18,6 +19,8 @@ struct ContentView: View {
     
     // EMS Manager
     @StateObject private var timerManager = EMSTimerManager.shared
+    
+    @AppStorage("userAge") private var userAge: Int = 0
 
     private let background = Color(red: 5/255, green: 15/255, blue: 29/255)
     private let surface = Color(red: 13/255, green: 27/255, blue: 43/255)
@@ -78,6 +81,18 @@ struct ContentView: View {
                     warning: warning
                 )
             }
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        showSettings = true
+                    } label: {
+                        Image(systemName: "gearshape.fill")
+                    }
+                }
+            }
+            .sheet(isPresented: $showSettings) {
+                SettingsView()
+            }
 
             tabBar
         }
@@ -91,6 +106,11 @@ struct ContentView: View {
             EMSCountdown(timerManager: timerManager)
         }
         .preferredColorScheme(.dark)
+        .onAppear {
+            if userAge == 0 {
+                showSettings = true
+            }
+        }
         .onReceive(timer) { _ in
             bleMonitor.checkOfflineDevices()
             familyManager.uploadLocalDevices(
