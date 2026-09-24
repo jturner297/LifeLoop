@@ -28,6 +28,11 @@
 	<string>LifeLoop uses Bluetooth to communicate with your LifeLoop BLE device.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>LifeLoop uses your location to show your current position on the map.</string>
+	<key>UIAppFonts</key>
+	<array>
+		<string>Futura Condensed.ttf</string>
+		<string>Helvetica-Neue-Condensed-Black.ttf</string>
+	</array>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>bluetooth-central</string>
@@ -35,6 +40,7 @@
 		<string>bluetooth-peripheral</string>
 		<string>location</string>
 		<string>remote-notification</string>
+		<string>fetch</string>
 	</array>
 	<key>UILaunchScreen</key>
 	<dict/>
@@ -43,11 +49,6 @@
 		<string>UIInterfaceOrientationPortrait</string>
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
-	</array>
-	<key>UIAppFonts</key>
-	<array>
-		<string>Futura Condensed.ttf</string>
-		<string>Helvetica-Neue-Condensed-Black.ttf</string>
 	</array>
 </dict>
 </plist>

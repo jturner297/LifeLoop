@@ -24,6 +24,10 @@
 		A10000000000000000000002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000002 /* ContentView.swift */; };
 		A10000000000000000000003 /* LifeLoopState.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000003 /* LifeLoopState.swift */; };
 		A10000000000000000000004 /* BLEMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000004 /* BLEMonitor.swift */; };
+		FB56C6103062D9DA00239815 /* AWSAPIPlugin in Frameworks */ = {isa = PBXBuildFile; productRef = FB56C60F3062D9DA00239815 /* AWSAPIPlugin */; };
+		FB56C6123062D9DA00239815 /* AWSCognitoAuthPlugin in Frameworks */ = {isa = PBXBuildFile; productRef = FB56C6113062D9DA00239815 /* AWSCognitoAuthPlugin */; };
+		FB56C6143062D9DA00239815 /* Amplify in Frameworks */ = {isa = PBXBuildFile; productRef = FB56C6133062D9DA00239815 /* Amplify */; };
+		FB56C61A3062E3DD00239815 /* amplifyconfiguration.json in Resources */ = {isa = PBXBuildFile; fileRef = FB56C6193062E3DD00239815 /* amplifyconfiguration.json */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -46,6 +50,9 @@
 		B10000000000000000000004 /* BLEMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BLEMonitor.swift; sourceTree = "<group>"; };
 		B10000000000000000000005 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		B10000000000000000000006 /* LifeLoop.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = LifeLoop.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		FB56C60C3061FDE700239815 /* Reexports.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Reexports.swift; sourceTree = "<group>"; };
+		FB56C60D3061FDE800239815 /* CoreLocationReexport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoreLocationReexport.swift; sourceTree = "<group>"; };
+		FB56C6193062E3DD00239815 /* amplifyconfiguration.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = amplifyconfiguration.json; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -53,6 +60,9 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				FB56C6143062D9DA00239815 /* Amplify in Frameworks */,
+				FB56C6103062D9DA00239815 /* AWSAPIPlugin in Frameworks */,
+				FB56C6123062D9DA00239815 /* AWSCognitoAuthPlugin in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -89,6 +99,7 @@
 			isa = PBXGroup;
 			children = (
 				58A9C606305A219D007C41DC /* FamilyAPIClient.swift */,
+				FB56C6193062E3DD00239815 /* amplifyconfiguration.json */,
 			);
 			path = Networking;
 			sourceTree = "<group>";
@@ -110,6 +121,8 @@
 			isa = PBXGroup;
 			children = (
 				D10000000000000000000002 /* LifeLoop */,
+				FB56C60C3061FDE700239815 /* Reexports.swift */,
+				FB56C60D3061FDE800239815 /* CoreLocationReexport.swift */,
 				D10000000000000000000005 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -172,6 +185,11 @@
 			dependencies = (
 			);
 			name = LifeLoop;
+			packageProductDependencies = (
+				FB56C60F3062D9DA00239815 /* AWSAPIPlugin */,
+				FB56C6113062D9DA00239815 /* AWSCognitoAuthPlugin */,
+				FB56C6133062D9DA00239815 /* Amplify */,
+			);
 			productName = LifeLoop;
 			productReference = B10000000000000000000006 /* LifeLoop.app */;
 			productType = "com.apple.product-type.application";
@@ -200,6 +218,9 @@
 				Base,
 			);
 			mainGroup = D10000000000000000000001;
+			packageReferences = (
+				FB56C60E3062D9D900239815 /* XCRemoteSwiftPackageReference "amplify-swift" */,
+			);
 			productRefGroup = D10000000000000000000005 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
@@ -217,6 +238,7 @@
 				58386C30305301E1008BFE72 /* Assests.xcassets in Resources */,
 				58A9C614305B84A4007C41DC /* Futura Condensed.ttf in Resources */,
 				58A9C615305B84A4007C41DC /* Helvetica-Neue-Condensed-Black.ttf in Resources */,
+				FB56C61A3062E3DD00239815 /* amplifyconfiguration.json in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -355,6 +377,7 @@
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = NO;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = WY6STY3DZL;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
@@ -376,6 +399,7 @@
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = NO;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = WY6STY3DZL;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
@@ -412,6 +436,35 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		FB56C60E3062D9D900239815 /* XCRemoteSwiftPackageReference "amplify-swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/aws-amplify/amplify-swift";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.61.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		FB56C60F3062D9DA00239815 /* AWSAPIPlugin */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = FB56C60E3062D9D900239815 /* XCRemoteSwiftPackageReference "amplify-swift" */;
+			productName = AWSAPIPlugin;
+		};
+		FB56C6113062D9DA00239815 /* AWSCognitoAuthPlugin */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = FB56C60E3062D9D900239815 /* XCRemoteSwiftPackageReference "amplify-swift" */;
+			productName = AWSCognitoAuthPlugin;
+		};
+		FB56C6133062D9DA00239815 /* Amplify */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = FB56C60E3062D9D900239815 /* XCRemoteSwiftPackageReference "amplify-swift" */;
+			productName = Amplify;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = E10000000000000000000002 /* Project object */;
 }

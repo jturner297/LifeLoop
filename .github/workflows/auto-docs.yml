@@ -95,8 +95,7 @@ jobs:
             };
 
             const models = [
-              "gemini-3.6-flash",
-              "gemini-2.5-flash"
+              "gemini-3.6-flash"
             ];
 
             const retryableStatuses = new Set([
@@ -244,6 +243,18 @@ jobs:
               const message =
                 data?.error?.message ??
                 "No usable response was returned by Gemini.";
+
+              if (
+                status === "unknown" ||
+                retryableStatuses.has(response?.status) ||
+                response?.status === 404
+              ) {
+                core.warning(
+                  `Gemini API unavailable (HTTP ${status}): ${message}. Documentation update skipped for this run.`
+                );
+
+                return;
+              }
 
               core.setFailed(
                 `Gemini API request failed with HTTP ${status}: ${message}`

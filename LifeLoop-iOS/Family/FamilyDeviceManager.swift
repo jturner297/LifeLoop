@@ -1,4 +1,7 @@
 import Foundation
+import UserNotifications
+import CoreLocation
+import Amplify
 
 @MainActor
 final class FamilyDeviceManager: ObservableObject {
@@ -11,6 +14,7 @@ final class FamilyDeviceManager: ObservableObject {
         }
     }
     @Published private(set) var familyDevices: [FamilyDeviceSnapshot] = []
+    @Published private(set) var addressCache: [String: String] = [:] // deviceID -> address
     @Published private(set) var syncStatus = "AppSync not configured"
     @Published private(set) var isSyncing = false
 
@@ -20,6 +24,8 @@ final class FamilyDeviceManager: ObservableObject {
     private let locationSharingEnabledKey = "com.lifeloop.family.locationSharingEnabled"
     private var uploadTasks: Set<String> = []
     private var lastRefreshDate: Date?
+    private let geocoder = CLGeocoder()
+    private var lastGeocode: [String: Date] = [:]
 
     init(apiClient: FamilyAPIClient = .shared) {
         self.apiClient = apiClient
@@ -40,6 +46,10 @@ final class FamilyDeviceManager: ObservableObject {
         UserDefaults.standard.set(normalizedGroupCode, forKey: groupCodeKey)
         groupCode = normalizedGroupCode
         syncStatus = hasGroup ? "Family group saved" : "Enter a family group code"
+    }
+
+    func requestNotificationAuthorization() {
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
     }
 
     func toggleLink(for device: KnownDevice) {
@@ -109,11 +119,52 @@ final class FamilyDeviceManager: ObservableObject {
         defer { isSyncing = false }
 
         do {
-            familyDevices = try await apiClient.fetchFamilyDevices(groupCode: normalizedGroupCode)
+            let previous = familyDevices
+            let fetched = try await apiClient.fetchFamilyDevices(groupCode: normalizedGroupCode)
+            familyDevices = fetched
             lastRefreshDate = Date()
             syncStatus = "Family devices updated"
+            // Emergency detection and address resolution
+            notifyIfEmergencyDetected(previous: previous, current: fetched)
+            fetched.forEach { resolveAddress(for: $0) }
         } catch {
-            syncStatus = "AppSync fetch failed: \(error.localizedDescription)"
+            syncStatus = "AppSync fetch failed: \(Self.describe(error))"
+        }
+    }
+
+    private func notifyIfEmergencyDetected(previous: [FamilyDeviceSnapshot], current: [FamilyDeviceSnapshot]) {
+        // Simple heuristic: state == 2 (fall) or bpm in critical low range (0 < bpm <= 40)
+        let previousByID = Dictionary(uniqueKeysWithValues: previous.map { ($0.id, $0) })
+        for device in current {
+            let was = previousByID[device.id]
+            let hadEmergencyBefore = (was?.state == 2) || ((was?.bpm ?? 0) > 0 && (was?.bpm ?? 0) <= 40)
+            let hasEmergencyNow = (device.state == 2) || (device.bpm > 0 && device.bpm <= 40)
+            if hasEmergencyNow && !hadEmergencyBefore {
+                postLocalNotification(title: "Emergency: \(device.displayName)", body: "\(device.ownerName) may need help.")
+            }
+        }
+    }
+
+    func resolveAddress(for device: FamilyDeviceSnapshot) {
+        guard device.isLocationShared, (device.latitude != 0 || device.longitude != 0) else { return }
+        let key = device.id
+        if let _ = addressCache[key] { return }
+        let now = Date()
+        if let last = lastGeocode[key], now.timeIntervalSince(last) < 60 { return }
+        lastGeocode[key] = now
+        let location = CLLocation(latitude: device.latitude, longitude: device.longitude)
+        geocoder.reverseGeocodeLocation(location) { [weak self] placemarks, error in
+            guard let self else { return }
+            if let placemark = placemarks?.first, error == nil {
+                let streetNum = placemark.subThoroughfare ?? ""
+                let streetName = placemark.thoroughfare ?? ""
+                let city = placemark.locality ?? ""
+                let state = placemark.administrativeArea ?? ""
+                let address = "\(streetNum) \(streetName), \(city) \(state)".trimmingCharacters(in: .whitespacesAndNewlines)
+                DispatchQueue.main.async {
+                    self.addressCache[key] = address.isEmpty ? String(format: "%.5f, %.5f", device.latitude, device.longitude) : address
+                }
+            }
         }
     }
 
@@ -128,7 +179,26 @@ final class FamilyDeviceManager: ObservableObject {
             ))
             syncStatus = "Linked \(device.name)"
         } catch {
-            syncStatus = "Link saved locally; AppSync failed: \(error.localizedDescription)"
+            syncStatus = "Link saved locally; AppSync failed: \(Self.describe(error))"
+        }
+    }
+
+    func sendMyEmergencyAlert(deviceID: String?, displayName: String, latitude: Double, longitude: Double, reason: String) async {
+        guard hasGroup else { return }
+        let payload = EmergencyAlertPayload(
+            groupCode: normalizedGroupCode,
+            deviceID: deviceID,
+            displayName: displayName,
+            latitude: latitude,
+            longitude: longitude,
+            reason: reason,
+            timestamp: Date()
+        )
+        do {
+            try await apiClient.sendEmergencyAlert(payload)
+            syncStatus = "Emergency alert sent"
+        } catch {
+            syncStatus = "Failed to send emergency: \(Self.describe(error))"
         }
     }
 
@@ -137,7 +207,7 @@ final class FamilyDeviceManager: ObservableObject {
             try await apiClient.uploadTelemetry(payload)
             syncStatus = "Uploaded \(payload.displayName)"
         } catch {
-            syncStatus = "Telemetry queued locally; AppSync failed: \(error.localizedDescription)"
+            syncStatus = "Telemetry queued locally; AppSync failed: \(Self.describe(error))"
         }
         uploadTasks.remove(uploadKey)
     }
@@ -161,5 +231,30 @@ final class FamilyDeviceManager: ObservableObject {
 
     private func saveLinkedDeviceIDs() {
         UserDefaults.standard.set(Array(linkedDeviceIDs), forKey: linkedDeviceIDsKey)
+    }
+
+    private func postLocalNotification(title: String, body: String) {
+        let content = UNMutableNotificationContent()
+        content.title = title
+        content.body = body
+        content.sound = .default
+        let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
+        UNUserNotificationCenter.current().add(request)
+    }
+
+    /// Unwraps Amplify's APIError (and any underlying error it wraps) to produce
+    /// a real, readable description instead of Swift's generic "error 3" fallback.
+    /// Also prints full detail to the console for debugging.
+    private static func describe(_ error: Error) -> String {
+        if let apiError = error as? APIError {
+            print("🔴 Full APIError: \(apiError)")
+            if let underlying = apiError.underlyingError {
+                print("🔴 Underlying error: \(underlying)")
+            }
+            return apiError.errorDescription
+        } else {
+            print("🔴 Non-APIError: \(error)")
+            return error.localizedDescription
+        }
     }
 }
