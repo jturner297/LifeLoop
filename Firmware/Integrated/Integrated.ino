@@ -124,8 +124,6 @@ const unsigned long KEEP_ALIVE_INTERVAL = 15000;
 
 // ── Setup ─────────────────────────────────────────────────────────────────────
 void setup() {
-  Serial.begin(115200);
-  
   pinMode(LED_RED, OUTPUT);
   pinMode(LED_GREEN, OUTPUT);
   pinMode(LED_BLUE, OUTPUT);
@@ -136,18 +134,13 @@ void setup() {
   pinMode(BUTTON_PIN, INPUT_PULLUP);
   Wire.begin();
 
-  if (myIMU.begin() != 0) {
-    Serial.println("LSM6DS3 IMU Error!");
-  }
+  myIMU.begin();
 
-  if (!particleSensor.begin(Wire, I2C_SPEED_FAST)) {
-    Serial.println("MAX30105 Error!");
-  } else {
+  if (particleSensor.begin(Wire, I2C_SPEED_FAST)) {
     particleSensor.setup(60, 1, 2, 200, 411, 4096);
   }
 
   if (!BLE.begin()) {
-    Serial.println("BLE Initialization Failed!");
     while (1);
   }
 
@@ -166,7 +159,6 @@ void setup() {
   BLE.advertise();
   
   myIMU.writeRegister(LSM6DS3_ACC_GYRO_CTRL1_XL, 0x4C); 
-  Serial.println("System Ready. BLE Advertising as: " + deviceName);
 }
 
 // ── Main Loop ─────────────────────────────────────────────────────────────────
@@ -324,7 +316,6 @@ void loop() {
     
     if (command == "CANCEL") {
       fallState = Normal;
-      Serial.println("Hardware State Reset via iOS Command");
     }
   }
 
@@ -340,9 +331,6 @@ void loop() {
     
     char msg[32];
     snprintf(msg, sizeof(msg), "BPM:%.1f|State:%d\n", currentBPM, fallState);
-    
-    Serial.print("Local Data -> ");
-    Serial.print(msg);
 
     if (central && txCharacteristic.subscribed()) {
       txCharacteristic.writeValue(msg);
