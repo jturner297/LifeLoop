@@ -1,4 +1,5 @@
 import Foundation
+import Amplify
 
 struct FamilyDeviceSnapshot: Identifiable, Codable, Equatable {
     let id: String
@@ -33,154 +34,225 @@ struct LinkDevicePayload: Codable {
     var ownerName: String = "Me"
 }
 
+struct EmergencyAlertPayload: Codable {
+    let groupCode: String
+    let deviceID: String?
+    let displayName: String
+    let latitude: Double
+    let longitude: Double
+    let reason: String
+    let timestamp: Date
+}
+
 final class FamilyAPIClient {
     static let shared = FamilyAPIClient()
 
-    private let graphQLEndpoint = URL(string: "https://7a5tliym6vhudnwa2mydck4cya.appsync-api.us-east-2.amazonaws.com/graphql")!
-    private let apiKey = "da2-7ml4dx2sifgvxnxyavaypzteym"
-    private let encoder: JSONEncoder
-    private let decoder: JSONDecoder
+    private let isoFormatter: ISO8601DateFormatter
+    private let isoFormatterFractional: ISO8601DateFormatter
 
     private init() {
-        encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-
-        decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
+        isoFormatter = ISO8601DateFormatter()
+        isoFormatterFractional = ISO8601DateFormatter()
+        isoFormatterFractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
     }
 
+    // MARK: - Mutations
+
     func linkDevice(_ payload: LinkDevicePayload) async throws {
-        let request = GraphQLRequest(
-            query: """
-            mutation LinkDevice($input: LinkDeviceInput!) {
-              linkDevice(input: $input) {
-                id: deviceID
-              }
-            }
-            """,
-            variables: GraphQLInputVariables(input: payload)
+        let input = """
+        {
+          groupCode: \(gqlString(payload.groupCode)),
+          deviceID: \(gqlString(payload.deviceID)),
+          displayName: \(gqlString(payload.displayName)),
+          ownerName: \(gqlString(payload.ownerName))
+        }
+        """
+        let document = """
+        mutation LinkDevice {
+          linkDevice(input: \(input)) {
+            id: deviceID
+          }
+        }
+        """
+        let request = GraphQLRequest<LinkDeviceMutationWire>(
+            document: document,
+            responseType: LinkDeviceMutationWire.self
         )
-        let _: LinkDeviceMutationData = try await sendGraphQL(request)
+        _ = try await send(mutation: request)
     }
 
     func uploadTelemetry(_ payload: FamilyTelemetryPayload) async throws {
-        let request = GraphQLRequest(
-            query: """
-            mutation UploadFamilyTelemetry($input: FamilyTelemetryInput!) {
-              uploadFamilyTelemetry(input: $input) {
-                id: deviceID
-              }
-            }
-            """,
-            variables: GraphQLInputVariables(input: payload)
+        let input = """
+        {
+          groupCode: \(gqlString(payload.groupCode)),
+          deviceID: \(gqlString(payload.deviceID)),
+          displayName: \(gqlString(payload.displayName)),
+          bpm: \(payload.bpm),
+          state: \(payload.state),
+          latitude: \(payload.latitude),
+          longitude: \(payload.longitude),
+          isLocationShared: \(payload.isLocationShared),
+          isOnline: \(payload.isOnline),
+          lastUpdated: \(gqlDate(payload.lastUpdated))
+        }
+        """
+        let document = """
+        mutation UploadFamilyTelemetry {
+          uploadFamilyTelemetry(input: \(input)) {
+            id: deviceID
+          }
+        }
+        """
+        let request = GraphQLRequest<UploadTelemetryMutationWire>(
+            document: document,
+            responseType: UploadTelemetryMutationWire.self
         )
-        let _: UploadTelemetryMutationData = try await sendGraphQL(request)
+        _ = try await send(mutation: request)
     }
+
+    func sendEmergencyAlert(_ payload: EmergencyAlertPayload) async throws {
+        let input = """
+        {
+          groupCode: \(gqlString(payload.groupCode)),
+          deviceID: \(gqlOptionalString(payload.deviceID)),
+          displayName: \(gqlString(payload.displayName)),
+          latitude: \(payload.latitude),
+          longitude: \(payload.longitude),
+          reason: \(gqlString(payload.reason)),
+          timestamp: \(gqlString(isoFormatter.string(from: payload.timestamp)))
+        }
+        """
+        let document = """
+        mutation SendEmergencyAlert {
+          sendEmergencyAlert(input: \(input)) {
+            id
+          }
+        }
+        """
+        let request = GraphQLRequest<SendEmergencyAlertMutationWire>(
+            document: document,
+            responseType: SendEmergencyAlertMutationWire.self
+        )
+        _ = try await send(mutation: request)
+    }
+
+    // MARK: - Query
 
     func fetchFamilyDevices(groupCode: String) async throws -> [FamilyDeviceSnapshot] {
-        let request = GraphQLRequest(
-            query: """
-            query FamilyDevices($groupCode: String!) {
-              familyDevices(groupCode: $groupCode) {
-                id: deviceID
-                displayName
-                ownerName: displayName
-                bpm
-                state
-                latitude
-                longitude
-                isLocationShared
-                isOnline
-                lastUpdated
-              }
-            }
-            """,
-            variables: FamilyDevicesQueryVariables(groupCode: groupCode)
+        let document = """
+        query FamilyDevices {
+          familyDevices(groupCode: \(gqlString(groupCode))) {
+            id: deviceID
+            displayName
+            ownerName: displayName
+            bpm
+            state
+            latitude
+            longitude
+            isLocationShared
+            isOnline
+            lastUpdated
+          }
+        }
+        """
+        let request = GraphQLRequest<FamilyDevicesQueryWire>(
+            document: document,
+            responseType: FamilyDevicesQueryWire.self
         )
-        let response: FamilyDevicesQueryData = try await sendGraphQL(request)
-        return response.familyDevices
+
+        print("🔵 Sending query:\n\(document)")
+
+        let result = try await Amplify.API.query(request: request)
+        switch result {
+        case .success(let wire):
+            return wire.familyDevices.map { device in
+                FamilyDeviceSnapshot(
+                    id: device.id,
+                    displayName: device.displayName,
+                    ownerName: device.ownerName,
+                    bpm: device.bpm,
+                    state: device.state,
+                    latitude: device.latitude,
+                    longitude: device.longitude,
+                    isLocationShared: device.isLocationShared,
+                    isOnline: device.isOnline,
+                    lastUpdated: parseDate(device.lastUpdated)
+                )
+            }
+        case .failure(let error):
+            print("🔴 Query failed: \(error)")
+            throw error
+        }
     }
 
-    private func sendGraphQL<ResponseData: Decodable, Variables: Encodable>(
-        _ graphQLRequest: GraphQLRequest<Variables>
-    ) async throws -> ResponseData {
-        var request = URLRequest(url: graphQLEndpoint)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
-        request.httpBody = try encoder.encode(graphQLRequest)
+    // MARK: - Helpers
 
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw URLError(.badServerResponse)
+    private func send<R: Decodable>(mutation request: GraphQLRequest<R>) async throws -> R {
+        let result = try await Amplify.API.mutate(request: request)
+        switch result {
+        case .success(let data):
+            return data
+        case .failure(let error):
+            print("🔴 Mutation failed: \(error)")
+            throw error
         }
-        guard 200..<300 ~= httpResponse.statusCode else {
-            let body = String(data: data, encoding: .utf8) ?? "No response body"
-            throw AppSyncError.httpError(statusCode: httpResponse.statusCode, body: body)
-        }
+    }
 
-        let graphQLResponse = try decoder.decode(GraphQLResponse<ResponseData>.self, from: data)
-        if let errors = graphQLResponse.errors, !errors.isEmpty {
-            throw AppSyncError.graphQLErrors(errors.map(\.message).joined(separator: "\n"))
-        }
-        guard let responseData = graphQLResponse.data else {
-            throw AppSyncError.missingData
-        }
-        return responseData
+    /// Safely inlines a String as a quoted, escaped GraphQL string literal.
+    private func gqlString(_ value: String) -> String {
+        var escaped = value.replacingOccurrences(of: "\\", with: "\\\\")
+        escaped = escaped.replacingOccurrences(of: "\"", with: "\\\"")
+        escaped = escaped.replacingOccurrences(of: "\n", with: "\\n")
+        return "\"\(escaped)\""
+    }
+
+    private func gqlOptionalString(_ value: String?) -> String {
+        guard let value else { return "null" }
+        return gqlString(value)
+    }
+
+    private func gqlDate(_ date: Date?) -> String {
+        guard let date else { return "null" }
+        return gqlString(isoFormatter.string(from: date))
+    }
+
+    private func parseDate(_ string: String?) -> Date? {
+        guard let string else { return nil }
+        return isoFormatterFractional.date(from: string) ?? isoFormatter.date(from: string)
     }
 }
 
-private struct GraphQLRequest<Variables: Encodable>: Encodable {
-    let query: String
-    let variables: Variables
-}
+// MARK: - Wire types (raw decode shapes matching the GraphQL response)
 
-private struct GraphQLInputVariables<Input: Encodable>: Encodable {
-    let input: Input
-}
-
-private struct FamilyDevicesQueryVariables: Encodable {
-    let groupCode: String
-}
-
-private struct GraphQLResponse<DataValue: Decodable>: Decodable {
-    let data: DataValue?
-    let errors: [GraphQLError]?
-}
-
-private struct GraphQLError: Decodable {
-    let message: String
-}
-
-private struct LinkDeviceMutationData: Decodable {
-    let linkDevice: MutationID
-}
-
-private struct UploadTelemetryMutationData: Decodable {
-    let uploadFamilyTelemetry: MutationID
-}
-
-private struct MutationID: Decodable {
+private struct MutationIDWire: Decodable {
     let id: String
 }
 
-private struct FamilyDevicesQueryData: Decodable {
-    let familyDevices: [FamilyDeviceSnapshot]
+private struct LinkDeviceMutationWire: Decodable {
+    let linkDevice: MutationIDWire
 }
 
-private enum AppSyncError: LocalizedError {
-    case httpError(statusCode: Int, body: String)
-    case graphQLErrors(String)
-    case missingData
+private struct UploadTelemetryMutationWire: Decodable {
+    let uploadFamilyTelemetry: MutationIDWire
+}
 
-    var errorDescription: String? {
-        switch self {
-        case .httpError(let statusCode, let body):
-            return "HTTP \(statusCode): \(body)"
-        case .graphQLErrors(let message):
-            return message
-        case .missingData:
-            return "AppSync returned no data."
-        }
-    }
+private struct SendEmergencyAlertMutationWire: Decodable {
+    let sendEmergencyAlert: MutationIDWire
+}
+
+private struct FamilyDevicesQueryWire: Decodable {
+    let familyDevices: [FamilyDeviceWire]
+}
+
+private struct FamilyDeviceWire: Decodable {
+    let id: String
+    let displayName: String
+    let ownerName: String
+    let bpm: Float
+    let state: Int
+    let latitude: Double
+    let longitude: Double
+    let isLocationShared: Bool
+    let isOnline: Bool
+    let lastUpdated: String?
 }

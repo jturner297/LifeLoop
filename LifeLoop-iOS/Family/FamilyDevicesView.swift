@@ -1,4 +1,5 @@
 import SwiftUI
+import MapKit
 
 struct FamilyDevicesView: View {
     @ObservedObject var familyManager: FamilyDeviceManager
@@ -12,20 +13,23 @@ struct FamilyDevicesView: View {
     let warning: Color
 
     var body: some View {
-        List {
-            groupSection
-            locationSharingSection
-            linkedDevicesSection
-            remoteDevicesSection
-        }
-        .listStyle(.plain)
-        .scrollContentBackground(.hidden)
-        .background(background)
-        .task {
-            await familyManager.refreshFamilyDevices()
-        }
-        .refreshable {
-            await familyManager.refreshFamilyDevices()
+        NavigationStack {
+            List {
+                groupSection
+                locationSharingSection
+                linkedDevicesSection
+                remoteDevicesSection
+            }
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .background(background)
+            .task {
+                await familyManager.refreshFamilyDevices()
+            }
+            .refreshable {
+                await familyManager.refreshFamilyDevices()
+            }
+            .navigationTitle("Family")
         }
     }
 
@@ -125,8 +129,10 @@ struct FamilyDevicesView: View {
                     .listRowBackground(surface)
             } else {
                 ForEach(familyManager.familyDevices) { device in
-                    familyDeviceRow(device)
-                        .listRowBackground(surface)
+                    NavigationLink(destination: FamilyMemberDetailView(device: device, address: familyManager.addressCache[device.id] ?? locationText(for: device), primaryText: primaryText, secondaryText: secondaryText, teal: teal, surface: surface, background: background)) {
+                        familyDeviceRow(device)
+                    }
+                    .onAppear { familyManager.resolveAddress(for: device) }
                 }
             }
         } header: {
@@ -191,10 +197,78 @@ struct FamilyDevicesView: View {
     }
 
     private func locationText(for device: FamilyDeviceSnapshot) -> String {
+        if let cached = familyManager.addressCache[device.id], !cached.isEmpty {
+            return cached
+        }
         guard device.isLocationShared,
               device.latitude != 0 || device.longitude != 0 else {
             return "Location hidden"
         }
         return String(format: "%.5f, %.5f", device.latitude, device.longitude)
+    }
+}
+
+struct FamilyMemberDetailView: View {
+    let device: FamilyDeviceSnapshot
+    let address: String
+    let primaryText: Color
+    let secondaryText: Color
+    let teal: Color
+    let surface: Color
+    let background: Color
+
+    var body: some View {
+        List {
+            Section {
+                HStack {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(device.displayName)
+                            .font(.system(size: 20, weight: .semibold))
+                            .foregroundStyle(primaryText)
+                        Text("Owner: \(device.ownerName)")
+                            .font(.system(size: 13))
+                            .foregroundStyle(secondaryText)
+                        Text("Last updated: \(lastUpdatedText(device.lastUpdated))")
+                            .font(.system(size: 12))
+                            .foregroundStyle(secondaryText)
+                    }
+                    Spacer()
+                    VStack(alignment: .trailing) {
+                        Text(device.bpm > 0 ? "\(Int(device.bpm.rounded())) bpm" : "--")
+                            .font(.system(size: 16, weight: .bold, design: .monospaced))
+                            .foregroundStyle(teal)
+                        Text(statusText)
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(device.isOnline ? teal : secondaryText)
+                    }
+                }
+            }
+            .listRowBackground(surface)
+
+            Section("Location") {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(address)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(primaryText)
+                    Text(String(format: "%.5f, %.5f", device.latitude, device.longitude))
+                        .font(.system(size: 12, weight: .regular, design: .monospaced))
+                        .foregroundStyle(secondaryText)
+                }
+            }
+            .listRowBackground(surface)
+        }
+        .navigationTitle(device.ownerName)
+        .navigationBarTitleDisplayMode(.inline)
+        .scrollContentBackground(.hidden)
+        .background(background)
+    }
+
+    private var statusText: String {
+        device.isOnline ? "Online" : "Offline"
+    }
+
+    private func lastUpdatedText(_ date: Date?) -> String {
+        guard let date else { return "Never" }
+        return DateFormatter.localizedString(from: date, dateStyle: .none, timeStyle: .short)
     }
 }
