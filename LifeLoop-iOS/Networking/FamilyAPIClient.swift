@@ -44,6 +44,13 @@ struct EmergencyAlertPayload: Codable {
     let timestamp: Date
 }
 
+struct CancelEmergencyPayload: Codable {
+    let groupCode: String
+    let targetDeviceID: String
+    let reason: String
+    let timestamp: Date
+}
+
 final class FamilyAPIClient {
     static let shared = FamilyAPIClient()
 
@@ -136,6 +143,29 @@ final class FamilyAPIClient {
         _ = try await send(mutation: request)
     }
 
+    func cancelEmergencyAlert(_ payload: CancelEmergencyPayload) async throws {
+        let input = """
+        {
+          groupCode: \(gqlString(payload.groupCode)),
+          targetDeviceID: \(gqlString(payload.targetDeviceID)),
+          reason: \(gqlString(payload.reason)),
+          timestamp: \(gqlString(isoFormatter.string(from: payload.timestamp)))
+        }
+        """
+        let document = """
+        mutation CancelEmergencyAlert {
+          cancelEmergencyAlert(input: \(input)) {
+            id
+          }
+        }
+        """
+        let request = GraphQLRequest<CancelEmergencyMutationWire>(
+            document: document,
+            responseType: CancelEmergencyMutationWire.self
+        )
+        _ = try await send(mutation: request)
+    }
+
     // MARK: - Query
 
     func fetchFamilyDevices(groupCode: String) async throws -> [FamilyDeviceSnapshot] {
@@ -144,7 +174,7 @@ final class FamilyAPIClient {
           familyDevices(groupCode: \(gqlString(groupCode))) {
             id: deviceID
             displayName
-            ownerName: displayName
+            ownerName
             bpm
             state
             latitude
@@ -160,7 +190,7 @@ final class FamilyAPIClient {
             responseType: FamilyDevicesQueryWire.self
         )
 
-        print("🔵 Sending query:\n\(document)")
+        print("Sending query:\n\(document)")
 
         let result = try await Amplify.API.query(request: request)
         switch result {
@@ -180,7 +210,7 @@ final class FamilyAPIClient {
                 )
             }
         case .failure(let error):
-            print("🔴 Query failed: \(error)")
+            print("Query failed: \(error)")
             throw error
         }
     }
@@ -193,7 +223,7 @@ final class FamilyAPIClient {
         case .success(let data):
             return data
         case .failure(let error):
-            print("🔴 Mutation failed: \(error)")
+            print("Mutation failed: \(error)")
             throw error
         }
     }
@@ -238,6 +268,10 @@ private struct UploadTelemetryMutationWire: Decodable {
 
 private struct SendEmergencyAlertMutationWire: Decodable {
     let sendEmergencyAlert: MutationIDWire
+}
+
+private struct CancelEmergencyMutationWire: Decodable {
+    let cancelEmergencyAlert: MutationIDWire
 }
 
 private struct FamilyDevicesQueryWire: Decodable {

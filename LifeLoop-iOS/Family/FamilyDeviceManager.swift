@@ -2,6 +2,7 @@ import Foundation
 import UserNotifications
 import CoreLocation
 import Amplify
+import Network
 
 @MainActor
 final class FamilyDeviceManager: ObservableObject {
@@ -27,6 +28,15 @@ final class FamilyDeviceManager: ObservableObject {
     private let geocoder = CLGeocoder()
     private var lastGeocode: [String: Date] = [:]
 
+    // Offline queue & reachability
+    private let pendingTelemetryKey = "com.lifeloop.family.pendingTelemetry"
+    private let pendingAlertsKey = "com.lifeloop.family.pendingAlerts"
+    private let monitor = NWPathMonitor()
+    private var isNetworkReachable = true
+    private var pendingTelemetry: [FamilyTelemetryPayload] = []
+    private var pendingAlerts: [EmergencyAlertPayload] = []
+    private var lastEmergencySentAt: Date?
+
     init(apiClient: FamilyAPIClient = .shared) {
         self.apiClient = apiClient
         groupCode = UserDefaults.standard.string(forKey: groupCodeKey) ?? ""
@@ -36,6 +46,22 @@ final class FamilyDeviceManager: ObservableObject {
         } else {
             isLocationSharingEnabled = UserDefaults.standard.bool(forKey: locationSharingEnabledKey)
         }
+
+        loadPendingQueues()
+
+        // Start reachability monitoring to flush when network is back
+        let queue = DispatchQueue(label: "com.lifeloop.reachability")
+        monitor.pathUpdateHandler = { [weak self] path in
+            guard let self else { return }
+            let reachable = path.status == .satisfied
+            Task { @MainActor in
+                self.isNetworkReachable = reachable
+                if reachable {
+                    _ = await self.flushPendingQueues()
+                }
+            }
+        }
+        monitor.start(queue: queue)
     }
 
     var hasGroup: Bool {
@@ -76,30 +102,54 @@ final class FamilyDeviceManager: ObservableObject {
         guard hasGroup else { return }
 
         for device in devices where linkedDeviceIDs.contains(device.id) {
-            guard let status = statuses[device.id], status.isConnected else { continue }
-            let sharedCoordinate = coordinateForSharing(
-                status: status,
-                fallbackLatitude: fallbackLatitude,
-                fallbackLongitude: fallbackLongitude
-            )
-            let payload = FamilyTelemetryPayload(
-                groupCode: normalizedGroupCode,
-                deviceID: device.id,
-                displayName: status.name,
-                bpm: status.lifeLoopState.bpm,
-                state: status.lifeLoopState.state,
-                latitude: sharedCoordinate.latitude,
-                longitude: sharedCoordinate.longitude,
-                isLocationShared: isLocationSharingEnabled,
-                isOnline: status.isConnected,
-                lastUpdated: status.lastUpdated
-            )
-            let uploadKey = "\(device.id)-\(Int(status.lastUpdated?.timeIntervalSince1970 ?? 0))"
-            guard !uploadTasks.contains(uploadKey) else { continue }
-            uploadTasks.insert(uploadKey)
+            let status = statuses[device.id]
+            if let status, status.isConnected {
+                let sharedCoordinate = coordinateForSharing(
+                    status: status,
+                    fallbackLatitude: fallbackLatitude,
+                    fallbackLongitude: fallbackLongitude
+                )
+                let payload = FamilyTelemetryPayload(
+                    groupCode: normalizedGroupCode,
+                    deviceID: device.id,
+                    displayName: status.name,
+                    bpm: status.lifeLoopState.bpm,
+                    state: status.lifeLoopState.state,
+                    latitude: sharedCoordinate.latitude,
+                    longitude: sharedCoordinate.longitude,
+                    isLocationShared: isLocationSharingEnabled,
+                    isOnline: status.isConnected,
+                    lastUpdated: status.lastUpdated
+                )
+                let uploadKey = "\(device.id)-\(Int(status.lastUpdated?.timeIntervalSince1970 ?? 0))"
+                guard !uploadTasks.contains(uploadKey) else { continue }
+                uploadTasks.insert(uploadKey)
 
-            Task {
-                await uploadTelemetry(payload, uploadKey: uploadKey)
+                Task {
+                    await uploadTelemetry(payload, uploadKey: uploadKey)
+                }
+            } else {
+                // Device is offline – periodically update AWS so family sees offline state
+                let minuteBucket = Int(Date().timeIntervalSince1970 / 60)
+                let uploadKey = "offline-\(device.id)-\(minuteBucket)"
+                guard !uploadTasks.contains(uploadKey) else { continue }
+                uploadTasks.insert(uploadKey)
+
+                let payload = FamilyTelemetryPayload(
+                    groupCode: normalizedGroupCode,
+                    deviceID: device.id,
+                    displayName: status?.name ?? device.name,
+                    bpm: 0,
+                    state: status?.lifeLoopState.state ?? 0,
+                    latitude: 0,
+                    longitude: 0,
+                    isLocationShared: false,
+                    isOnline: false,
+                    lastUpdated: nil
+                )
+                Task {
+                    await uploadTelemetry(payload, uploadKey: uploadKey)
+                }
             }
         }
     }
@@ -133,14 +183,22 @@ final class FamilyDeviceManager: ObservableObject {
     }
 
     private func notifyIfEmergencyDetected(previous: [FamilyDeviceSnapshot], current: [FamilyDeviceSnapshot]) {
-        // Simple heuristic: state == 2 (fall) or bpm in critical low range (0 < bpm <= 40)
+        // Emergency triggers: state == 2 (fall), state == 4 (emergency), or bpm in critical low range (0 < bpm <= 40)
         let previousByID = Dictionary(uniqueKeysWithValues: previous.map { ($0.id, $0) })
         for device in current {
             let was = previousByID[device.id]
-            let hadEmergencyBefore = (was?.state == 2) || ((was?.bpm ?? 0) > 0 && (was?.bpm ?? 0) <= 40)
-            let hasEmergencyNow = (device.state == 2) || (device.bpm > 0 && device.bpm <= 40)
+            let hadEmergencyBefore = (was?.state == 2) || (was?.state == 4) || ((was?.bpm ?? 0) > 0 && (was?.bpm ?? 0) <= 40)
+            let hasEmergencyNow = (device.state == 2) || (device.state == 4) || (device.bpm > 0 && device.bpm <= 40)
             if hasEmergencyNow && !hadEmergencyBefore {
-                postLocalNotification(title: "Emergency: \(device.displayName)", body: "\(device.ownerName) may need help.")
+                var reason = "may need help."
+                if device.state == 4 {
+                    reason = "is in an EMERGENCY state!"
+                } else if device.state == 2 {
+                    reason = "has experienced a fall."
+                } else if device.bpm > 0 && device.bpm <= 40 {
+                    reason = "has critical BPM: \(Int(device.bpm))."
+                }
+                postLocalNotificationPublic(title: "Emergency: \(device.displayName)", body: "\(device.ownerName) \(reason)")
             }
         }
     }
@@ -161,7 +219,7 @@ final class FamilyDeviceManager: ObservableObject {
                 let city = placemark.locality ?? ""
                 let state = placemark.administrativeArea ?? ""
                 let address = "\(streetNum) \(streetName), \(city) \(state)".trimmingCharacters(in: .whitespacesAndNewlines)
-                DispatchQueue.main.async {
+                Task { @MainActor in
                     self.addressCache[key] = address.isEmpty ? String(format: "%.5f, %.5f", device.latitude, device.longitude) : address
                 }
             }
@@ -197,8 +255,10 @@ final class FamilyDeviceManager: ObservableObject {
         do {
             try await apiClient.sendEmergencyAlert(payload)
             syncStatus = "Emergency alert sent"
+            postLocalNotificationPublic(title: "Emergency Sent", body: "\(displayName): \(reason)")
         } catch {
-            syncStatus = "Failed to send emergency: \(Self.describe(error))"
+            queueAlert(payload)
+            syncStatus = "Emergency queued; AppSync failed: \(Self.describe(error))"
         }
     }
 
@@ -207,6 +267,7 @@ final class FamilyDeviceManager: ObservableObject {
             try await apiClient.uploadTelemetry(payload)
             syncStatus = "Uploaded \(payload.displayName)"
         } catch {
+            queueTelemetry(payload)
             syncStatus = "Telemetry queued locally; AppSync failed: \(Self.describe(error))"
         }
         uploadTasks.remove(uploadKey)
@@ -233,13 +294,149 @@ final class FamilyDeviceManager: ObservableObject {
         UserDefaults.standard.set(Array(linkedDeviceIDs), forKey: linkedDeviceIDsKey)
     }
 
-    private func postLocalNotification(title: String, body: String) {
+    private func postLocalNotificationPublic(title: String, body: String) {
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
         content.sound = .default
         let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
         UNUserNotificationCenter.current().add(request)
+    }
+
+    // MARK: - Offline queue helpers
+
+    private func loadPendingQueues() {
+        let decoder = JSONDecoder()
+        if let data = UserDefaults.standard.data(forKey: pendingTelemetryKey),
+           let items = try? decoder.decode([FamilyTelemetryPayload].self, from: data) {
+            pendingTelemetry = items
+        }
+        if let data = UserDefaults.standard.data(forKey: pendingAlertsKey),
+           let items = try? decoder.decode([EmergencyAlertPayload].self, from: data) {
+            pendingAlerts = items
+        }
+    }
+
+    private func savePendingQueues() {
+        let encoder = JSONEncoder()
+        if let data = try? encoder.encode(pendingTelemetry) {
+            UserDefaults.standard.set(data, forKey: pendingTelemetryKey)
+        }
+        if let data = try? encoder.encode(pendingAlerts) {
+            UserDefaults.standard.set(data, forKey: pendingAlertsKey)
+        }
+    }
+
+    private func queueTelemetry(_ payload: FamilyTelemetryPayload) {
+        pendingTelemetry.append(payload)
+        savePendingQueues()
+    }
+
+    private func queueAlert(_ payload: EmergencyAlertPayload) {
+        pendingAlerts.append(payload)
+        savePendingQueues()
+    }
+
+    private func canSendNow() -> Bool { isNetworkReachable }
+
+    func sendImmediateEmergencyFromApp(deviceID: String?, displayName: String, latitude: Double, longitude: Double, reason: String) {
+        // Throttle duplicate sends if multiple triggers happen in quick succession
+        if let last = lastEmergencySentAt, Date().timeIntervalSince(last) < 10 { return }
+        lastEmergencySentAt = Date()
+        Task { [weak self] in
+            await self?.sendMyEmergencyAlert(deviceID: deviceID, displayName: displayName, latitude: latitude, longitude: longitude, reason: reason)
+        }
+        postLocalNotificationPublic(title: "EMS Alert Sent", body: "Immediate alert for \(displayName): \(reason)")
+    }
+
+    func cancelEmergency(for device: FamilyDeviceSnapshot) async {
+        guard hasGroup else { return }
+        let payload = CancelEmergencyPayload(
+            groupCode: normalizedGroupCode,
+            targetDeviceID: device.id,
+            reason: "Admin cancel request",
+            timestamp: Date()
+        )
+        do {
+            try await apiClient.cancelEmergencyAlert(payload)
+            syncStatus = "Requested cancel for \(device.displayName)"
+            postLocalNotificationPublic(title: "Requested EMS Cancel", body: "Sent cancel for \(device.ownerName)")
+        } catch {
+            queueCancelEmergency(payload)
+            syncStatus = "Cancel queued; AppSync failed: \(Self.describe(error))"
+        }
+    }
+
+    private func queueCancelEmergency(_ payload: CancelEmergencyPayload) {
+        // Represent as an EmergencyAlertPayload with reason to reuse storage or keep a dedicated path?
+        // Keep a dedicated path by piggybacking on alerts array via a special reason
+        let adapted = EmergencyAlertPayload(
+            groupCode: payload.groupCode,
+            deviceID: payload.targetDeviceID,
+            displayName: "[CANCEL]",
+            latitude: 0,
+            longitude: 0,
+            reason: payload.reason,
+            timestamp: payload.timestamp
+        )
+        pendingAlerts.append(adapted)
+        savePendingQueues()
+    }
+
+    private func isCancelMarker(_ alert: EmergencyAlertPayload) -> Bool {
+        alert.displayName == "[CANCEL]"
+    }
+
+    private func flushPendingCancel(_ alert: EmergencyAlertPayload) async throws {
+        let payload = CancelEmergencyPayload(
+            groupCode: alert.groupCode,
+            targetDeviceID: alert.deviceID ?? "",
+            reason: alert.reason,
+            timestamp: alert.timestamp
+        )
+        try await apiClient.cancelEmergencyAlert(payload)
+    }
+
+    @discardableResult
+    private func flushPendingQueues() async -> (sentTelemetry: Int, sentAlerts: Int) {
+        guard canSendNow() else { return (0, 0) }
+        var sentT = 0
+        var sentA = 0
+
+        // Flush telemetry
+        if !pendingTelemetry.isEmpty {
+            var remaining: [FamilyTelemetryPayload] = []
+            for item in pendingTelemetry {
+                do {
+                    try await apiClient.uploadTelemetry(item)
+                    sentT += 1
+                } catch {
+                    remaining.append(item)
+                }
+            }
+            pendingTelemetry = remaining
+        }
+
+        // Flush alerts (support both normal and cancel markers)
+        if !pendingAlerts.isEmpty {
+            var remaining: [EmergencyAlertPayload] = []
+            for item in pendingAlerts {
+                do {
+                    if isCancelMarker(item) {
+                        try await flushPendingCancel(item)
+                    } else {
+                        try await apiClient.sendEmergencyAlert(item)
+                    }
+                    sentA += 1
+                } catch {
+                    remaining.append(item)
+                }
+            }
+            pendingAlerts = remaining
+        }
+
+        savePendingQueues()
+        return (sentT, sentA)
     }
 
     /// Unwraps Amplify's APIError (and any underlying error it wraps) to produce

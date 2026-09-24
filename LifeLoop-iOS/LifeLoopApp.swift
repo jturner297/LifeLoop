@@ -2,6 +2,7 @@ import SwiftUI
 import Amplify
 import AWSCognitoAuthPlugin
 import AWSAPIPlugin
+import UserNotifications
 
 @main
 struct LifeLoopApp: App {
@@ -9,6 +10,7 @@ struct LifeLoopApp: App {
 
     init() {
         configureAmplify()
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
     }
 
     var body: some Scene {
