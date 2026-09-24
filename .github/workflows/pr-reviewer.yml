@@ -1,18 +1,14 @@
-name: Strict iOS Code Reviewer
-
+name: Strict iOS Code Review
 on:
   pull_request:
     branches:
       - IOS-App
-
 jobs:
   review:
     runs-on: ubuntu-latest
-
     permissions:
       contents: read
       pull-requests: write
-
     steps:
       - name: Checkout pull request
         uses: actions/checkout@v4
@@ -27,7 +23,6 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
-
           # The checkout is pinned to the PR head, so compare the exact PR
           # commits instead of relying on a merge ref or a remote branch name.
           git diff --no-ext-diff --unified=80 "${BASE_SHA}...${HEAD_SHA}" > pr.diff
@@ -40,53 +35,43 @@ jobs:
           script: |
             const fs = require("fs");
             const diff = fs.readFileSync("pr.diff", "utf8");
-
             if (!diff.trim()) {
               console.log("No code changes detected in this PR.");
               return;
             }
-
             const apiKey = process.env.GEMINI_API_KEY;
             if (!apiKey) {
               core.setFailed("GEMINI_API_KEY is not configured.");
               return;
             }
-
-            const prompt = `
-You are a strict iOS code reviewer.
-
-Review the following Swift code diff from a pull request.
-
-Focus specifically on:
-
-1. Swift compilation errors.
-2. SwiftUI presentation hierarchy conflicts, including sheets, covers,
-   navigation destinations, alerts, and full-screen presentations.
-3. CoreBluetooth thread-safety and delegate queue issues.
-4. Incorrect Bluetooth service or characteristic discovery.
-5. Memory-management problems, retain cycles, and unsafe optional handling.
-6. Concurrency issues involving actors, MainActor, Tasks, async/await,
-   and UI updates.
-7. Data races and state-management problems.
-8. Security, privacy, and sensitive-data exposure.
-9. Logic errors and regressions.
-10. Missing error handling.
-
-For every issue, include:
-
-- Severity: Critical, High, Medium, or Low
-- File and line if available
-- Explanation of the problem
-- A concrete code fix
-
-If there are no significant issues, say so clearly.
-
-Do not invent issues unrelated to the diff.
-
-PULL REQUEST DIFF:
-${diff}
-`;
-
+            
+            const prompt = `You are a strict iOS code reviewer.
+            Review the following Swift code diff from a pull request.
+            
+            Focus specifically on:
+            1. Swift compilation errors.
+            2. SwiftUI presentation hierarchy conflicts, including sheets, covers, navigation destinations, alerts, and full-screen presentations.
+            3. CoreBluetooth thread-safety and delegate queue issues.
+            4. Incorrect Bluetooth service or characteristic discovery.
+            5. Memory-management problems, retain cycles, and unsafe optional handling.
+            6. Concurrency issues involving actors, MainActor, Tasks, async/await, and UI updates.
+            7. Data races and state-management problems.
+            8. Security, privacy, and sensitive-data exposure.
+            9. Logic errors and regressions.
+            10. Missing error handling.
+            
+            For every issue, include:
+            - Severity: Critical, High, Medium, or Low
+            - File and line if available
+            - Explanation of the problem
+            - A concrete code fix
+            
+            If there are no significant issues, say so clearly.
+            Do not invent issues unrelated to the diff.
+            
+            PULL REQUEST DIFF:
+            ${diff}`;
+            
             const requestBody = {
               contents: [
                 {
@@ -98,22 +83,20 @@ ${diff}
                 temperature: 0.2
               }
             };
-
             // Use model IDs currently supported by the Gemini Generate Content API.
             const models = [
               "gemini-3.8-flash",
               "gemini-2.5-flash"
             ];
-
             const retryableStatuses = new Set([429, 500, 502, 503, 504]);
             const maxAttemptsPerModel = 4;
+            
             let response = null;
             let data = null;
             let successfulModel = null;
-
+            
             for (const model of models) {
               console.log(`Trying Gemini model: ${model}`);
-
               for (let attempt = 1; attempt <= maxAttemptsPerModel; attempt++) {
                 try {
                   response = await fetch(
@@ -127,7 +110,6 @@ ${diff}
                       body: JSON.stringify(requestBody)
                     }
                   );
-
                   const responseText = await response.text();
                   try {
                     data = responseText ? JSON.parse(responseText) : {};
@@ -142,7 +124,7 @@ ${diff}
                     }
                   };
                 }
-
+                
                 if (
                   response?.ok &&
                   Array.isArray(data?.candidates) &&
@@ -151,38 +133,33 @@ ${diff}
                   successfulModel = model;
                   break;
                 }
-
                 const status = response?.status ?? "network error";
                 console.log(
                   `Gemini request failed for ${model}, attempt ${attempt}/${maxAttemptsPerModel}, HTTP ${status}`
                 );
                 console.log("Gemini response:", JSON.stringify(data, null, 2));
-
                 const shouldRetry =
                   response &&
                   retryableStatuses.has(response.status) &&
                   attempt < maxAttemptsPerModel;
-
+                  
                 if (!shouldRetry) {
                   break;
                 }
-
                 const delayMs = Math.min(30000, 5000 * 2 ** (attempt - 1));
                 console.log(`Retrying in ${delayMs} ms...`);
                 await new Promise((resolve) => setTimeout(resolve, delayMs));
               }
-
+              
               if (successfulModel) {
                 break;
               }
-
               // Try the fallback model only for transient failures. Permanent
               // errors such as an invalid key or malformed request should fail fast.
               if (!response || !retryableStatuses.has(response.status)) {
                 break;
               }
             }
-
             if (
               !response?.ok ||
               !Array.isArray(data?.candidates) ||
@@ -192,32 +169,29 @@ ${diff}
               const message =
                 data?.error?.message ??
                 "No usable response was returned by Gemini.";
-
               core.setFailed(
                 `Gemini API request failed with HTTP ${status}: ${message}`
               );
               return;
             }
-
             const review = data.candidates[0]?.content?.parts
               ?.map((part) => part.text || "")
               .join("")
               .trim();
-
             if (!review) {
               core.setFailed(
                 `Gemini returned an empty review using model ${successfulModel}.`
               );
               return;
             }
-
+            
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: context.issue.number,
               body: `### 🤖 Gemini Code Review\n\n${review}`
             });
-
+            
             console.log(
               `Gemini review posted successfully using ${successfulModel}.`
             );
