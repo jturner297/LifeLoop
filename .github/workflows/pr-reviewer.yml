@@ -14,47 +14,40 @@ jobs:
       pull-requests: write
 
     steps:
-      - name: Checkout repository
+      - name: Checkout pull request
         uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
 
-      - name: Extract Code Diff
+      - name: Extract code diff
         shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
 
-          # Fetch the PR base branch.
-          git fetch origin "${{ github.event.pull_request.base.ref }}"
+          # The checkout is pinned to the PR head, so compare the exact PR
+          # commits instead of relying on a merge ref or a remote branch name.
+          git diff --no-ext-diff --unified=80 "${BASE_SHA}...${HEAD_SHA}" > pr.diff
 
-          # Generate the diff between the PR and its base branch.
-          git diff \
-            "origin/${{ github.event.pull_request.base.ref }}...HEAD" \
-            > pr.diff
-
-          # Store the multiline diff securely for the next step.
-          EOF_MARKER="PR_DIFF_$(openssl rand -hex 16)"
-
-          {
-            echo "PR_DIFF<<${EOF_MARKER}"
-            cat pr.diff
-            echo "${EOF_MARKER}"
-          } >> "$GITHUB_ENV"
-
-      - name: Execute Gemini Code Review
+      - name: Execute Gemini code review
         uses: actions/github-script@v7
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         with:
           script: |
-            const diff = process.env.PR_DIFF;
+            const fs = require("fs");
+            const diff = fs.readFileSync("pr.diff", "utf8");
 
-            if (!diff || diff.trim() === "") {
+            if (!diff.trim()) {
               console.log("No code changes detected in this PR.");
               return;
             }
 
-            if (!process.env.GEMINI_API_KEY) {
+            const apiKey = process.env.GEMINI_API_KEY;
+            if (!apiKey) {
               core.setFailed("GEMINI_API_KEY is not configured.");
               return;
             }
@@ -97,11 +90,8 @@ ${diff}
             const requestBody = {
               contents: [
                 {
-                  parts: [
-                    {
-                      text: prompt
-                    }
-                  ]
+                  role: "user",
+                  parts: [{ text: prompt }]
                 }
               ],
               generationConfig: {
@@ -109,19 +99,13 @@ ${diff}
               }
             };
 
+            // Use model IDs currently supported by the Gemini Generate Content API.
             const models = [
-              "gemini-3.6-flash",
+              "gemini-3.8-flash",
               "gemini-2.5-flash"
             ];
 
-            const retryableStatuses = new Set([
-              429,
-              500,
-              502,
-              503,
-              504
-            ]);
-
+            const retryableStatuses = new Set([429, 500, 502, 503, 504]);
             const maxAttemptsPerModel = 4;
             let response = null;
             let data = null;
@@ -130,53 +114,52 @@ ${diff}
             for (const model of models) {
               console.log(`Trying Gemini model: ${model}`);
 
-              for (
-                let attempt = 1;
-                attempt <= maxAttemptsPerModel;
-                attempt++
-              ) {
-                response = await fetch(
-                  `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${process.env.GEMINI_API_KEY}`,
-                  {
-                    method: "POST",
-                    headers: {
-                      "Content-Type": "application/json"
-                    },
-                    body: JSON.stringify(requestBody)
-                  }
-                );
-
-                const responseText = await response.text();
-
+              for (let attempt = 1; attempt <= maxAttemptsPerModel; attempt++) {
                 try {
-                  data = responseText ? JSON.parse(responseText) : {};
-                } catch {
+                  response = await fetch(
+                    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+                    {
+                      method: "POST",
+                      headers: {
+                        "Content-Type": "application/json",
+                        "x-goog-api-key": apiKey
+                      },
+                      body: JSON.stringify(requestBody)
+                    }
+                  );
+
+                  const responseText = await response.text();
+                  try {
+                    data = responseText ? JSON.parse(responseText) : {};
+                  } catch {
+                    data = { error: { message: responseText } };
+                  }
+                } catch (error) {
+                  response = null;
                   data = {
                     error: {
-                      message: responseText
+                      message: error instanceof Error ? error.message : String(error)
                     }
                   };
                 }
 
                 if (
-                  response.ok &&
-                  Array.isArray(data.candidates) &&
+                  response?.ok &&
+                  Array.isArray(data?.candidates) &&
                   data.candidates.length > 0
                 ) {
                   successfulModel = model;
                   break;
                 }
 
+                const status = response?.status ?? "network error";
                 console.log(
-                  `Gemini request failed for ${model}, attempt ${attempt}/${maxAttemptsPerModel}, HTTP ${response.status}`
+                  `Gemini request failed for ${model}, attempt ${attempt}/${maxAttemptsPerModel}, HTTP ${status}`
                 );
-
-                console.log(
-                  "Gemini response:",
-                  JSON.stringify(data, null, 2)
-                );
+                console.log("Gemini response:", JSON.stringify(data, null, 2));
 
                 const shouldRetry =
+                  response &&
                   retryableStatuses.has(response.status) &&
                   attempt < maxAttemptsPerModel;
 
@@ -184,40 +167,24 @@ ${diff}
                   break;
                 }
 
-                // Exponential backoff: 5s, 10s, 20s.
-                const delayMs = Math.min(
-                  30000,
-                  5000 * Math.pow(2, attempt - 1)
-                );
-
+                const delayMs = Math.min(30000, 5000 * 2 ** (attempt - 1));
                 console.log(`Retrying in ${delayMs} ms...`);
-
-                await new Promise((resolve) =>
-                  setTimeout(resolve, delayMs)
-                );
+                await new Promise((resolve) => setTimeout(resolve, delayMs));
               }
 
               if (successfulModel) {
                 break;
               }
 
-              // Do not try another model for non-transient errors.
-              if (
-                response &&
-                !retryableStatuses.has(response.status)
-              ) {
+              // Try the fallback model only for transient failures. Permanent
+              // errors such as an invalid key or malformed request should fail fast.
+              if (!response || !retryableStatuses.has(response.status)) {
                 break;
               }
             }
 
-            console.log(
-              "RAW GEMINI RESPONSE:",
-              JSON.stringify(data, null, 2)
-            );
-
             if (
-              !response ||
-              !response.ok ||
+              !response?.ok ||
               !Array.isArray(data?.candidates) ||
               data.candidates.length === 0
             ) {
@@ -232,11 +199,10 @@ ${diff}
               return;
             }
 
-            const review =
-              data.candidates[0]?.content?.parts
-                ?.map((part) => part.text || "")
-                .join("")
-                .trim();
+            const review = data.candidates[0]?.content?.parts
+              ?.map((part) => part.text || "")
+              .join("")
+              .trim();
 
             if (!review) {
               core.setFailed(
