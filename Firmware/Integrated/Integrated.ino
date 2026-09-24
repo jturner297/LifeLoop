@@ -139,8 +139,7 @@ void setup() {
   if (particleSensor.begin(Wire, I2C_SPEED_FAST)) {
     particleSensor.setup(60, 1, 2, 200, 411, 4096);
   }
-
-  if (!BLE.begin()) {
+if (!BLE.begin()) {
     while (1);
   }
 
@@ -149,10 +148,16 @@ void setup() {
   idSuffix.toUpperCase();
   String deviceName = "Life Loop " + idSuffix;
 
+  // ── FIX: Set the internal GAP device name characteristic (0x2A00) ───────────
+  // This stops iOS from replacing the name with "Arduino" after connection
+  BLE.setDeviceName(deviceName.c_str());
+
+  // Set the advertised scan response name (already in your code)
   BLE.setLocalName(deviceName.c_str());
+
   BLE.setAdvertisedService(lifeLoopService);
   lifeLoopService.addCharacteristic(txCharacteristic);
-  lifeLoopService.addCharacteristic(rxCharacteristic); // Attached new characteristic
+  lifeLoopService.addCharacteristic(rxCharacteristic);
   BLE.addService(lifeLoopService);
 
   txCharacteristic.writeValue("");
