@@ -85,8 +85,7 @@ jobs:
             };
             // Use model IDs currently supported by the Gemini Generate Content API.
             const models = [
-              "gemini-3.8-flash",
-              "gemini-2.5-flash"
+              "gemini-3.8-flash"
             ];
             const retryableStatuses = new Set([429, 500, 502, 503, 504]);
             const maxAttemptsPerModel = 4;
