@@ -1,0 +1,4 @@
+(fp_lib_table
+	(version 7)
+	(lib (name "MAX30102_BREAKOUT") (type "KiCad") (uri "C:/Users/Justin Turner/Documents/Projects/LifeLoop/pcb/Materials/MAX30102_BREAKOUT.pretty") (options "") (descr ""))
+)
