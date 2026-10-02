@@ -12,6 +12,8 @@ struct SettingsView: View {
     
     // Set to 0 so we know if the user hasn't configured it yet
     @AppStorage("userAge") private var userAge: Int = 0
+    @AppStorage("isAdminUser") private var isAdminUser: Bool = false
+    @AppStorage("allowRemoteAdminCancel") private var allowRemoteAdminCancel: Bool = true
     
     var body: some View {
         NavigationStack {
@@ -35,6 +37,13 @@ struct SettingsView: View {
                     }
                 }
                 .listRowBackground(Color(red: 13/255, green: 27/255, blue: 43/255))
+                
+                Section(header: Text("Admin & Permissions")) {
+                    Toggle("I am an Admin for my family group", isOn: $isAdminUser)
+                    Toggle("Allow remote admin to cancel my EMS call", isOn: $allowRemoteAdminCancel)
+                        .tint(.red)
+                }
+                .listRowBackground(Color(red: 13/255, green: 27/255, blue: 43/255))
             }
             .navigationTitle(userAge == 0 ? "Initial Setup" : "Settings")
             .navigationBarTitleDisplayMode(.inline)
@@ -55,3 +64,4 @@ struct SettingsView: View {
         .preferredColorScheme(.dark)
     }
 }
+

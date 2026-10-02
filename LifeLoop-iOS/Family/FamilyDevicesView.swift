@@ -129,7 +129,8 @@ struct FamilyDevicesView: View {
                     .listRowBackground(surface)
             } else {
                 ForEach(familyManager.familyDevices) { device in
-                    NavigationLink(destination: FamilyMemberDetailView(device: device, address: familyManager.addressCache[device.id] ?? locationText(for: device), primaryText: primaryText, secondaryText: secondaryText, teal: teal, surface: surface, background: background)) {
+                    NavigationLink(destination: FamilyMemberDetailView(device: device, address: familyManager.addressCache[device.id] ?? locationText(for: device), primaryText: primaryText, secondaryText: secondaryText, teal: teal, surface: surface, background: background)
+                        .environmentObject(familyManager)) {
                         familyDeviceRow(device)
                     }
                     .onAppear { familyManager.resolveAddress(for: device) }
@@ -158,6 +159,10 @@ struct FamilyDevicesView: View {
                 Text(device.displayName)
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(primaryText)
+                
+                Text(stateDescription(for: device.state))
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(device.state == 4 ? Color.red : primaryText)
 
                 Text("\(device.ownerName) • \(lastUpdatedText(device.lastUpdated))")
                     .font(.system(size: 12, weight: .regular))
@@ -206,6 +211,21 @@ struct FamilyDevicesView: View {
         }
         return String(format: "%.5f, %.5f", device.latitude, device.longitude)
     }
+    
+    private func stateDescription(for state: Int) -> String {
+        switch state {
+        case 4:
+            return "EMERGENCY (4)"
+        case 2:
+            return "Fall Detected (2)"
+        case 1:
+            return "Normal (1)"
+        case 0:
+            return "Idle (0)"
+        default:
+            return "State: \(state)"
+        }
+    }
 }
 
 struct FamilyMemberDetailView: View {
@@ -216,6 +236,8 @@ struct FamilyMemberDetailView: View {
     let teal: Color
     let surface: Color
     let background: Color
+
+    @EnvironmentObject private var familyManager: FamilyDeviceManager
 
     var body: some View {
         List {
@@ -256,6 +278,30 @@ struct FamilyMemberDetailView: View {
                 }
             }
             .listRowBackground(surface)
+
+            if device.isLocationShared && (device.latitude != 0 || device.longitude != 0) {
+                Section("Map") {
+                    Map(initialPosition: .region(MKCoordinateRegion(
+                        center: CLLocationCoordinate2D(latitude: device.latitude, longitude: device.longitude),
+                        span: MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01)
+                    ))) {
+                        Marker(device.displayName, systemImage: device.isOnline ? "heart.fill" : "heart.slash", coordinate: CLLocationCoordinate2D(latitude: device.latitude, longitude: device.longitude))
+                            .tint(device.isOnline ? .red : .gray)
+                    }
+                    .frame(height: 220)
+                }
+                .listRowBackground(surface)
+            }
+
+            Section("Admin Tools") {
+                Button(role: .destructive) {
+                    Task { await familyManager.cancelEmergency(for: device) }
+                } label: {
+                    Label("Request Cancel EMS", systemImage: "xmark.octagon")
+                }
+                .disabled(!device.isOnline)
+            }
+            .listRowBackground(surface)
         }
         .navigationTitle(device.ownerName)
         .navigationBarTitleDisplayMode(.inline)
@@ -272,3 +318,4 @@ struct FamilyMemberDetailView: View {
         return DateFormatter.localizedString(from: date, dateStyle: .none, timeStyle: .short)
     }
 }
+

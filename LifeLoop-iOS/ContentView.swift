@@ -107,6 +107,7 @@ struct ContentView: View {
         }
         .preferredColorScheme(.dark)
         .onAppear {
+            familyManager.requestNotificationAuthorization()
             if userAge == 0 {
                 showSettings = true
             }
@@ -121,6 +122,25 @@ struct ContentView: View {
             )
             Task {
                 await familyManager.refreshFamilyDevices(force: false)
+            }
+        }
+        .onChange(of: timerManager.isAlertTriggered) { isTriggered in
+            if isTriggered {
+                // Find the first linked device if available
+                let linked = bleMonitor.knownDevices.first { familyManager.linkedDeviceIDs.contains($0.id) }
+                let deviceID = linked?.id
+                let displayName = linked.map { bleMonitor.deviceStatuses[$0.id]?.name ?? $0.name } ?? "This iPhone"
+                let lat = GPS.latitude
+                let lon = GPS.longitude
+                Task {
+                    await familyManager.sendMyEmergencyAlert(
+                        deviceID: deviceID,
+                        displayName: displayName,
+                        latitude: lat,
+                        longitude: lon,
+                        reason: timerManager.triggerReason
+                    )
+                }
             }
         }
     }

@@ -19,6 +19,8 @@ class EMSTimerManager: ObservableObject {
     @Published var isCountingDown = false
     @Published var triggerReason: String = "EMERGENCY DETECTED"
     
+    var onImmediateTrigger: ((String) -> Void)?
+    
     // Actual iOS timer object
     private var timer: Timer?
     
@@ -30,6 +32,8 @@ class EMSTimerManager: ObservableObject {
         
         //Store the message for the UI
         self.triggerReason = reason
+        
+        onImmediateTrigger?(reason)
         
         isCountingDown = true
         timeRemaining = 30

@@ -1,5 +1,6 @@
 import CoreBluetooth
 import Foundation
+import UserNotifications
 
 /// iOS does not use an Android-style foreground Service or persistent
 /// notification. Background BLE work is enabled with the `bluetooth-central`
@@ -30,6 +31,8 @@ final class BLEMonitor: NSObject, ObservableObject {
     private var connectedPeripherals: [String: CBPeripheral] = [:]
     private var txCharacteristics: [String: CBCharacteristic] = [:]
     private let deviceStore = DeviceStore()
+    
+    private var lastImmediateAlertAt: Date?
     
     var isConnected: Bool {
         deviceStatuses.values.contains { $0.isConnected }
@@ -212,10 +215,12 @@ final class BLEMonitor: NSObject, ObservableObject {
                 if hasCardiacEvent {
                     DispatchQueue.main.async {
                         EMSTimerManager.shared.startCountdown(reason: "CARDIAC \n ABNORMALITY \n DETECTED")
+                        self.sendImmediateEmergency(reason: "CARDIAC ABNORMALITY DETECTED", deviceID: deviceID)
                         }
                 } else if hasFallen {
                     DispatchQueue.main.async {
                         EMSTimerManager.shared.startCountdown(reason: "SEVERE FALL \nDETECTED")
+                        self.sendImmediateEmergency(reason: "SEVERE FALL DETECTED", deviceID: deviceID)
                     }
                 }
                 // check for hardware cancellation
@@ -240,6 +245,46 @@ final class BLEMonitor: NSObject, ObservableObject {
                 // .withoutResponse executes instantly
                 peripheral.writeValue(payload, for: rxChar, type: .withoutResponse)
                 log("Sent CANCEL command to device")
+            }
+        }
+    }
+
+    private func sendImmediateEmergency(reason: String, deviceID: String) {
+        // Throttle duplicate sends within 10 seconds
+        if let last = lastImmediateAlertAt, Date().timeIntervalSince(last) < 10 { return }
+        lastImmediateAlertAt = Date()
+
+        let rawCode = UserDefaults.standard.string(forKey: "com.lifeloop.family.groupCode") ?? ""
+        let groupCode = rawCode.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        guard !groupCode.isEmpty else { return }
+
+        let displayName = deviceStatuses[deviceID]?.name ?? "LifeLoop Device"
+        let lat = locationManager.latitude
+        let lon = locationManager.longitude
+
+        let payload = EmergencyAlertPayload(
+            groupCode: groupCode,
+            deviceID: deviceID,
+            displayName: displayName,
+            latitude: lat,
+            longitude: lon,
+            reason: reason,
+            timestamp: Date()
+        )
+
+        Task {
+            do {
+                try await FamilyAPIClient.shared.sendEmergencyAlert(payload)
+                // Local notification so the user sees confirmation immediately
+                let content = UNMutableNotificationContent()
+                content.title = "EMS Alert Sent"
+                content.body = "Immediate alert for \(displayName): \(reason)"
+                content.sound = .default
+                let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
+                try await UNUserNotificationCenter.current().add(request)
+            } catch {
+                // Best-effort: we don't have access to the FamilyDeviceManager queue here
+                // Consider retrying on next trigger
             }
         }
     }
@@ -512,3 +557,4 @@ extension BLEMonitor: CBPeripheralDelegate {
         handleTelemetry(data, deviceID: peripheral.identifier.uuidString)
     }
 }
+
