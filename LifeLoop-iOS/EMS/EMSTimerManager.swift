@@ -40,6 +40,7 @@ class EMSTimerManager: ObservableObject {
         
         isActive = true
         isAlertTriggered = false
+        EmergencyAlarmManager.shared.startAlarm()
         
         /*
          Allows for repetition of subtracting exactly one second for the countdown within the infinite loop that fires once every second
@@ -76,5 +77,6 @@ class EMSTimerManager: ObservableObject {
         timeRemaining = 30
         isAlertTriggered = false
         isCountingDown = false
+        EmergencyAlarmManager.shared.stopAlarm()
     }
 }

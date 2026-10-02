@@ -10,6 +10,8 @@
 		580C66FA3048F9CF00C85FC7 /* LocationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 580C66F93048F9C700C85FC7 /* LocationManager.swift */; };
 		58386C30305301E1008BFE72 /* Assests.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 58386C2F305301E1008BFE72 /* Assests.xcassets */; };
 		586277E83062D20D00E8E924 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 586277E73062D1E600E8E924 /* SettingsView.swift */; };
+		586277EA306573B700E8E924 /* Danger Alarm Sound Effect.mp3 in Resources */ = {isa = PBXBuildFile; fileRef = 586277E9306573B700E8E924 /* Danger Alarm Sound Effect.mp3 */; };
+		586277EC3065749B00E8E924 /* EmergencyAlarmManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 586277EB3065748800E8E924 /* EmergencyAlarmManager.swift */; };
 		58A9C608305A219D007C41DC /* FamilyDevicesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58A9C604305A219D007C41DC /* FamilyDevicesView.swift */; };
 		58A9C609305A219D007C41DC /* FamilyAPIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58A9C606305A219D007C41DC /* FamilyAPIClient.swift */; };
 		58A9C60A305A219D007C41DC /* FamilyDeviceManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58A9C603305A219D007C41DC /* FamilyDeviceManager.swift */; };
@@ -34,6 +36,9 @@
 		580C66F93048F9C700C85FC7 /* LocationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocationManager.swift; sourceTree = "<group>"; };
 		58386C2F305301E1008BFE72 /* Assests.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assests.xcassets; sourceTree = "<group>"; };
 		586277E73062D1E600E8E924 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		586277E9306573B700E8E924 /* Danger Alarm Sound Effect.mp3 */ = {isa = PBXFileReference; lastKnownFileType = audio.mp3; path = "Danger Alarm Sound Effect.mp3"; sourceTree = "<group>"; };
+		586277EB3065748800E8E924 /* EmergencyAlarmManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmergencyAlarmManager.swift; sourceTree = "<group>"; };
+		586277EE3065818A00E8E924 /* Secrets.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Secrets.xcconfig; sourceTree = "<group>"; };
 		58A9C603305A219D007C41DC /* FamilyDeviceManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FamilyDeviceManager.swift; sourceTree = "<group>"; };
 		58A9C604305A219D007C41DC /* FamilyDevicesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FamilyDevicesView.swift; sourceTree = "<group>"; };
 		58A9C606305A219D007C41DC /* FamilyAPIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FamilyAPIClient.swift; sourceTree = "<group>"; };
@@ -86,6 +91,14 @@
 			path = Settings;
 			sourceTree = "<group>";
 		};
+		586277ED3065818000E8E924 /* Secrets */ = {
+			isa = PBXGroup;
+			children = (
+				586277EE3065818A00E8E924 /* Secrets.xcconfig */,
+			);
+			path = Secrets;
+			sourceTree = "<group>";
+		};
 		58A9C605305A219D007C41DC /* Family */ = {
 			isa = PBXGroup;
 			children = (
@@ -107,12 +120,14 @@
 		58A9C60B305A27F6007C41DC /* EMS */ = {
 			isa = PBXGroup;
 			children = (
+				586277EB3065748800E8E924 /* EmergencyAlarmManager.swift */,
 				58A9C618305B86A4007C41DC /* MarqueeText.swift */,
 				58A9C616305B8603007C41DC /* HexagonGrid.swift */,
 				58A9C610305B6E3E007C41DC /* EMSTimerManager.swift */,
 				58A9C60C305A2801007C41DC /* EMSCountdown.swift */,
 				58A9C612305B84A4007C41DC /* Futura Condensed.ttf */,
 				58A9C613305B84A4007C41DC /* Helvetica-Neue-Condensed-Black.ttf */,
+				586277E9306573B700E8E924 /* Danger Alarm Sound Effect.mp3 */,
 			);
 			path = EMS;
 			sourceTree = "<group>";
@@ -120,6 +135,7 @@
 		D10000000000000000000001 = {
 			isa = PBXGroup;
 			children = (
+				586277ED3065818000E8E924 /* Secrets */,
 				D10000000000000000000002 /* LifeLoop */,
 				FB56C60C3061FDE700239815 /* Reexports.swift */,
 				FB56C60D3061FDE800239815 /* CoreLocationReexport.swift */,
@@ -239,6 +255,7 @@
 				58A9C614305B84A4007C41DC /* Futura Condensed.ttf in Resources */,
 				58A9C615305B84A4007C41DC /* Helvetica-Neue-Condensed-Black.ttf in Resources */,
 				FB56C61A3062E3DD00239815 /* amplifyconfiguration.json in Resources */,
+				586277EA306573B700E8E924 /* Danger Alarm Sound Effect.mp3 in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -256,6 +273,7 @@
 				58A9C60D305A2806007C41DC /* EMSCountdown.swift in Sources */,
 				580C66FA3048F9CF00C85FC7 /* LocationManager.swift in Sources */,
 				A10000000000000000000003 /* LifeLoopState.swift in Sources */,
+				586277EC3065749B00E8E924 /* EmergencyAlarmManager.swift in Sources */,
 				586277E83062D20D00E8E924 /* SettingsView.swift in Sources */,
 				58A9C608305A219D007C41DC /* FamilyDevicesView.swift in Sources */,
 				58A9C617305B8626007C41DC /* HexagonGrid.swift in Sources */,
@@ -377,7 +395,7 @@
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = NO;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = WY6STY3DZL;
+				DEVELOPMENT_TEAM = BYX6MH2GQG;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
@@ -399,7 +417,7 @@
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = NO;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = WY6STY3DZL;
+				DEVELOPMENT_TEAM = BYX6MH2GQG;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
