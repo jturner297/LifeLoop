@@ -33,16 +33,47 @@ struct ContentView: View {
     private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     var body: some View {
-        ZStack(alignment: .bottom) {
-            Group {
-                switch selectedTab {
-                case .devices:
-                    dashboardView
-                case .family:
-                    FamilyDevicesView(
-                        familyManager: familyManager,
-                        localDevices: bleMonitor.knownDevices,
-                        deviceStatuses: bleMonitor.deviceStatuses,
+        NavigationStack {
+            ZStack(alignment: .bottom) {
+                Group {
+                    switch selectedTab {
+                    case .devices:
+                        dashboardView
+                    case .family:
+                        FamilyDevicesView(
+                            familyManager: familyManager,
+                            localDevices: bleMonitor.knownDevices,
+                            deviceStatuses: bleMonitor.deviceStatuses,
+                            background: background,
+                            surface: surface,
+                            primaryText: primaryText,
+                            secondaryText: secondaryText,
+                            teal: teal,
+                            warning: warning
+                        )
+                    case .map:
+                        MapScreen(
+                            targetLat: GPS.latitude,
+                            targetLon: GPS.longitude,
+                            statusText: GPS.statusText,
+                            familyDevices: familyManager.familyDevices
+                        )
+                    }
+                }
+                .sheet(isPresented: $isShowingAddDeviceSheet) {
+                    AddDeviceSheet(
+                        bleMonitor: bleMonitor,
+                        background: background,
+                        surface: surface,
+                        primaryText: primaryText,
+                        secondaryText: secondaryText,
+                        teal: teal
+                    )
+                }
+                .sheet(item: $selectedDevice) { device in
+                    DeviceProfileSheet(
+                        device: device,
+                        bleMonitor: bleMonitor,
                         background: background,
                         surface: surface,
                         primaryText: primaryText,
@@ -50,96 +81,68 @@ struct ContentView: View {
                         teal: teal,
                         warning: warning
                     )
-                case .map:
-                    MapScreen(
-                        targetLat: GPS.latitude,
-                        targetLon: GPS.longitude,
-                        statusText: GPS.statusText,
-                        familyDevices: familyManager.familyDevices
-                    )
                 }
-            }
-            .sheet(isPresented: $isShowingAddDeviceSheet) {
-                AddDeviceSheet(
-                    bleMonitor: bleMonitor,
-                    background: background,
-                    surface: surface,
-                    primaryText: primaryText,
-                    secondaryText: secondaryText,
-                    teal: teal
-                )
-            }
-            .sheet(item: $selectedDevice) { device in
-                DeviceProfileSheet(
-                    device: device,
-                    bleMonitor: bleMonitor,
-                    background: background,
-                    surface: surface,
-                    primaryText: primaryText,
-                    secondaryText: secondaryText,
-                    teal: teal,
-                    warning: warning
-                )
-            }
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        showSettings = true
-                    } label: {
-                        Image(systemName: "gearshape.fill")
+                .toolbar {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button {
+                            showSettings = true
+                        } label: {
+                            Image(systemName: "gearshape.fill")
+                                .foregroundStyle(teal)
+                        }
                     }
                 }
-            }
-            .sheet(isPresented: $showSettings) {
-                SettingsView()
-            }
+                .sheet(isPresented: $showSettings) {
+                    SettingsView()
+                }
 
-            tabBar
-        }
-        .onChange(of: timerManager.isActive) { isEmergency in
-            if isEmergency {
-                isShowingAddDeviceSheet = false
-                selectedDevice = nil
+                tabBar
             }
-        }
-        .fullScreenCover(isPresented: $timerManager.isActive){
-            EMSCountdown(timerManager: timerManager)
-        }
-        .preferredColorScheme(.dark)
-        .onAppear {
-            familyManager.requestNotificationAuthorization()
-            if userAge == 0 {
-                showSettings = true
+            .onChange(of: timerManager.isActive) { oldActive, newActive in
+                if newActive {
+                    isShowingAddDeviceSheet = false
+                    selectedDevice = nil
+                }
             }
-        }
-        .onReceive(timer) { _ in
-            bleMonitor.checkOfflineDevices()
-            familyManager.uploadLocalDevices(
-                bleMonitor.knownDevices,
-                statuses: bleMonitor.deviceStatuses,
-                fallbackLatitude: GPS.latitude,
-                fallbackLongitude: GPS.longitude
-            )
-            Task {
-                await familyManager.refreshFamilyDevices(force: false)
+            .fullScreenCover(isPresented: $timerManager.isActive){
+                EMSCountdown(timerManager: timerManager)
             }
-        }
-        .onChange(of: timerManager.isAlertTriggered) { isTriggered in
-            if isTriggered {
-                // Find the first linked device if available
-                let linked = bleMonitor.knownDevices.first { familyManager.linkedDeviceIDs.contains($0.id) }
-                let deviceID = linked?.id
-                let displayName = linked.map { bleMonitor.deviceStatuses[$0.id]?.name ?? $0.name } ?? "This iPhone"
-                let lat = GPS.latitude
-                let lon = GPS.longitude
+            .preferredColorScheme(.dark)
+            .onAppear {
+                familyManager.requestNotificationAuthorization()
+                if userAge == 0 {
+                    showSettings = true
+                }
+            }
+            .onReceive(timer) { _ in
+                bleMonitor.checkOfflineDevices()
+                familyManager.uploadLocalDevices(
+                    bleMonitor.knownDevices,
+                    statuses: bleMonitor.deviceStatuses,
+                    fallbackLatitude: GPS.latitude,
+                    fallbackLongitude: GPS.longitude
+                )
                 Task {
-                    await familyManager.sendMyEmergencyAlert(
-                        deviceID: deviceID,
-                        displayName: displayName,
-                        latitude: lat,
-                        longitude: lon,
-                        reason: timerManager.triggerReason
-                    )
+                    await familyManager.refreshFamilyDevices(force: false)
+                }
+            }
+            .onChange(of: timerManager.isAlertTriggered) { oldTriggered, newTriggered in
+                if newTriggered {
+                    // Find the first linked device if available
+                    let linked = bleMonitor.knownDevices.first { familyManager.linkedDeviceIDs.contains($0.id) }
+                    let deviceID = linked?.id
+                    let displayName = linked.map { bleMonitor.deviceStatuses[$0.id]?.name ?? $0.name } ?? "This iPhone"
+                    let lat = GPS.latitude
+                    let lon = GPS.longitude
+                    Task {
+                        await familyManager.sendMyEmergencyAlert(
+                            deviceID: deviceID,
+                            displayName: displayName,
+                            latitude: lat,
+                            longitude: lon,
+                            reason: timerManager.triggerReason
+                        )
+                    }
                 }
             }
         }

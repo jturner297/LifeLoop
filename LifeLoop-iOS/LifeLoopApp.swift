@@ -15,7 +15,7 @@ struct LifeLoopApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            AppRootView()
                 .environmentObject(bleMonitor)
         }
     }

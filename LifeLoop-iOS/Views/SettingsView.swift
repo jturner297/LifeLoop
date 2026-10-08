@@ -10,30 +10,45 @@ import SwiftUI
 struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
     
-    // Set to 0 so we know if the user hasn't configured it yet
     @AppStorage("userAge") private var userAge: Int = 0
     @AppStorage("isAdminUser") private var isAdminUser: Bool = false
     @AppStorage("allowRemoteAdminCancel") private var allowRemoteAdminCancel: Bool = true
+    
+    // Injects the global role variable so it can be reset to unassigned
+    @AppStorage("userRole") private var userRole: String = "unassigned"
+    
+    // Local state to power the scroll wheel before saving
+    @State private var tempAge: Int = 65
     
     var body: some View {
         NavigationStack {
             Form {
                 Section(header: Text("Emergency Thresholds")) {
-                    // Only show the threshold calculation if they've set a valid age
-                    if userAge > 0 {
-                        Stepper("Age: \(userAge)", value: $userAge, in: 10...100)
+                    VStack {
+                        Text("Select Age: \(tempAge)")
+                            .font(.headline)
+                            .foregroundColor(Color(red: 255/255, green: 194/255, blue: 86/255))
+                            .padding(.top, 10)
                         
+                        // Classic Apple Scroll Wheel Implementation
+                        Picker("Age", selection: $tempAge) {
+                            ForEach(10...100, id: \.self) { age in
+                                Text("\(age)").tag(age)
+                            }
+                        }
+                        .pickerStyle(.wheel)
+                        .frame(height: 140)
+                        .clipped()
+                    }
+                    
+                    if tempAge > 0 {
                         HStack {
                             Text("Tachycardia Auto-Trigger")
                             Spacer()
-                            Text("\(220 - userAge) BPM")
+                            Text("\(220 - tempAge) BPM")
                                 .bold()
                                 .foregroundColor(Color(red: 255/255, green: 194/255, blue: 86/255))
                         }
-                    } else {
-                        // The prompt they see on first launch
-                        Stepper("Set your age to continue", value: $userAge, in: 0...100)
-                            .foregroundColor(Color(red: 255/255, green: 194/255, blue: 86/255))
                     }
                 }
                 .listRowBackground(Color(red: 13/255, green: 27/255, blue: 43/255))
@@ -42,6 +57,14 @@ struct SettingsView: View {
                     Toggle("I am an Admin for my family group", isOn: $isAdminUser)
                     Toggle("Allow remote admin to cancel my EMS call", isOn: $allowRemoteAdminCancel)
                         .tint(.red)
+                    
+                    // The destructive escape hatch back to the role selection flow
+                    Button(role: .destructive) {
+                        userRole = "unassigned"
+                        dismiss()
+                    } label: {
+                        Text("Reset App Role (Switch to Patient)")
+                    }
                 }
                 .listRowBackground(Color(red: 13/255, green: 27/255, blue: 43/255))
             }
@@ -52,16 +75,18 @@ struct SettingsView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Done") {
+                        userAge = tempAge
                         dismiss()
                     }
-                    // Lock the user on this screen until they set a valid age
-                    .disabled(userAge == 0)
                 }
             }
-            // Prevent them from swiping the sheet down to escape
+            .onAppear {
+                if userAge > 0 {
+                    tempAge = userAge
+                }
+            }
             .interactiveDismissDisabled(userAge == 0)
         }
         .preferredColorScheme(.dark)
     }
 }
-
