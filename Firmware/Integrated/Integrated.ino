@@ -6,15 +6,15 @@
 
 // ── Hardware Definitions ──────────────────────────────────────────────────────
 #define BUTTON_PIN D1
+#define BUZZER_PIN A3         // Added Buzzer Pin
 
 // ── BLE Definitions ───────────────────────────────────────────────────────────
 #define SERVICE_UUID           "6E400001-B5A3-F393-E0A9-E50E24DCCA9E"
 #define CHARACTERISTIC_UUID_TX "6E400003-B5A3-F393-E0A9-E50E24DCCA9E"
-#define CHARACTERISTIC_UUID_RX "6E400002-B5A3-F393-E0A9-E50E24DCCA9E" // Added RX UUID
+#define CHARACTERISTIC_UUID_RX "6E400002-B5A3-F393-E0A9-E50E24DCCA9E" 
 
 BLEService lifeLoopService(SERVICE_UUID);
 BLECharacteristic txCharacteristic(CHARACTERISTIC_UUID_TX, BLENotify | BLERead, 32);
-// BLEWriteWithoutResponse ensures the phone doesn't wait for an acknowledgment packet, making it instant
 BLECharacteristic rxCharacteristic(CHARACTERISTIC_UUID_RX, BLEWrite | BLEWriteWithoutResponse, 32); 
 
 // ── Hardware Objects ──────────────────────────────────────────────────────────
@@ -132,8 +132,12 @@ void setup() {
   digitalWrite(LED_BLUE, HIGH);
 
   pinMode(BUTTON_PIN, INPUT_PULLUP);
-  Wire.begin();
+  
+  // Initialize Buzzer
+  pinMode(BUZZER_PIN, OUTPUT);
+  noTone(BUZZER_PIN); // Ensure it starts quiet using noTone()
 
+  Wire.begin();
   myIMU.begin();
 
   if (particleSensor.begin(Wire, I2C_SPEED_FAST)) {
@@ -148,11 +152,7 @@ if (!BLE.begin()) {
   idSuffix.toUpperCase();
   String deviceName = "Life Loop " + idSuffix;
 
-  // ── FIX: Set the internal GAP device name characteristic (0x2A00) ───────────
-  // This stops iOS from replacing the name with "Arduino" after connection
   BLE.setDeviceName(deviceName.c_str());
-
-  // Set the advertised scan response name (already in your code)
   BLE.setLocalName(deviceName.c_str());
 
   BLE.setAdvertisedService(lifeLoopService);
@@ -171,7 +171,7 @@ void loop() {
   BLEDevice central = BLE.central();
   unsigned long now = millis();
 
-  // 1. Process Heart Rate (Gated to 200Hz)
+  // 1. Process Heart Rate
   if (now - lastHrReadTime >= HR_READ_INTERVAL) {
     lastHrReadTime = now;
     
@@ -207,7 +207,7 @@ void loop() {
     }
   }
 
-  // 2. Process Fall Detection Pipeline (Gated to 50Hz)
+  // 2. Process Fall Detection Pipeline
   if (now - lastMpuReadTime >= MPU_READ_INTERVAL) {
     lastMpuReadTime = now;
 
@@ -226,6 +226,7 @@ void loop() {
         digitalWrite(LED_BLUE, LOW);  
         digitalWrite(LED_RED, HIGH);
         digitalWrite(LED_GREEN, HIGH);
+        noTone(BUZZER_PIN);   // Silence the buzzer using noTone()
         ledRedState = true;
         buttonPressStartTime = 0; 
         
@@ -290,7 +291,16 @@ void loop() {
         if (now - lastBlinkTime >= 500) { 
           lastBlinkTime = now;
           ledRedState = !ledRedState;
+          
           digitalWrite(LED_RED, ledRedState ? HIGH : LOW);
+          
+          // Drive the passive buzzer with a 3000 Hz square wave.
+          // ledRedState == LOW means the LED is ON, so we sound the alarm.
+          if (!ledRedState) {
+            tone(BUZZER_PIN, 3000); 
+          } else {
+            noTone(BUZZER_PIN);
+          }
         }
         
         if (digitalRead(BUTTON_PIN) == LOW) {
@@ -307,7 +317,7 @@ void loop() {
     }
   }
 
-  // 3. Listen for iOS Commands (Inserted exactly per software team specs)
+  // 3. Listen for iOS Commands 
   if (rxCharacteristic.written()) {
     int length = rxCharacteristic.valueLength();
     const uint8_t* val = rxCharacteristic.value();
@@ -316,7 +326,6 @@ void loop() {
       command += (char)val[i];
     }
     
-    // Trim handles any stray newline characters iOS might append
     command.trim(); 
     
     if (command == "CANCEL") {
