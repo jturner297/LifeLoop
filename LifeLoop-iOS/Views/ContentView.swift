@@ -17,10 +17,11 @@ struct ContentView: View {
     @StateObject private var GPS = LocationManager()
     @StateObject private var familyManager = FamilyDeviceManager()
     
-    // EMS Manager
-    @StateObject private var timerManager = EMSTimerManager.shared
-    
     @AppStorage("userAge") private var userAge: Int = 0
+
+    // Caregiver Emergency Alert State
+    @State private var showingEmergencyAlert = false
+    @State private var emergencyMessage = ""
 
     private let background = Color(red: 5/255, green: 15/255, blue: 29/255)
     private let surface = Color(red: 13/255, green: 27/255, blue: 43/255)
@@ -98,15 +99,6 @@ struct ContentView: View {
 
                 tabBar
             }
-            .onChange(of: timerManager.isActive) { oldActive, newActive in
-                if newActive {
-                    isShowingAddDeviceSheet = false
-                    selectedDevice = nil
-                }
-            }
-            .fullScreenCover(isPresented: $timerManager.isActive){
-                EMSCountdown(timerManager: timerManager)
-            }
             .preferredColorScheme(.dark)
             .onAppear {
                 familyManager.requestNotificationAuthorization()
@@ -126,24 +118,19 @@ struct ContentView: View {
                     await familyManager.refreshFamilyDevices(force: false)
                 }
             }
-            .onChange(of: timerManager.isAlertTriggered) { oldTriggered, newTriggered in
-                if newTriggered {
-                    // Find the first linked device if available
-                    let linked = bleMonitor.knownDevices.first { familyManager.linkedDeviceIDs.contains($0.id) }
-                    let deviceID = linked?.id
-                    let displayName = linked.map { bleMonitor.deviceStatuses[$0.id]?.name ?? $0.name } ?? "This iPhone"
-                    let lat = GPS.latitude
-                    let lon = GPS.longitude
-                    Task {
-                        await familyManager.sendMyEmergencyAlert(
-                            deviceID: deviceID,
-                            displayName: displayName,
-                            latitude: lat,
-                            longitude: lon,
-                            reason: timerManager.triggerReason
-                        )
+            .onChange(of: familyManager.familyDevices, perform: { newDevices in
+                for device in newDevices {
+                    if device.state == 4 {
+                        // FIXED: Changed device.name to device.displayName
+                        emergencyMessage = "\(device.displayName) has triggered an SOS Emergency!\nLocation: \(coordinateText(device.latitude)), \(coordinateText(device.longitude))"
+                        showingEmergencyAlert = true
                     }
                 }
+            })
+            .alert("EMERGENCY", isPresented: $showingEmergencyAlert) {
+                Button("Acknowledge", role: .cancel) { }
+            } message: {
+                Text(emergencyMessage)
             }
         }
     }
@@ -261,7 +248,6 @@ struct ContentView: View {
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(secondaryText)
             
-            // Current GPS coordinates displayed in header
             Text(GPS.currentAddress)
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(teal)
@@ -374,7 +360,6 @@ struct ContentView: View {
         isShowingAddDeviceSheet = true
         bleMonitor.startScanning()
     }
-
 }
 
 private struct DeviceProfileSheet: View {
