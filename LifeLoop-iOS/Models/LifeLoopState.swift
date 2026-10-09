@@ -4,6 +4,7 @@ import Foundation
 struct LifeLoopState: Equatable {
     var bpm: Float = 0
     var state: Int = 0
+    var battery: Int = 100
     var latitude: Double = 0
     var longitude: Double = 0
 }

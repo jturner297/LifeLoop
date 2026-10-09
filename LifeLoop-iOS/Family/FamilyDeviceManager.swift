@@ -174,7 +174,6 @@ final class FamilyDeviceManager: ObservableObject {
             familyDevices = fetched
             lastRefreshDate = Date()
             syncStatus = "Family devices updated"
-            // Emergency detection and address resolution
             notifyIfEmergencyDetected(previous: previous, current: fetched)
             fetched.forEach { resolveAddress(for: $0) }
         } catch {
@@ -183,7 +182,6 @@ final class FamilyDeviceManager: ObservableObject {
     }
 
     private func notifyIfEmergencyDetected(previous: [FamilyDeviceSnapshot], current: [FamilyDeviceSnapshot]) {
-        // Emergency triggers: state == 2 (fall), state == 4 (emergency), or bpm in critical low range (0 < bpm <= 40)
         let previousByID = Dictionary(uniqueKeysWithValues: previous.map { ($0.id, $0) })
         for device in current {
             let was = previousByID[device.id]
@@ -259,6 +257,25 @@ final class FamilyDeviceManager: ObservableObject {
         } catch {
             queueAlert(payload)
             syncStatus = "Emergency queued; AppSync failed: \(Self.describe(error))"
+        }
+    }
+    
+    // NEW: Allow the wearer to explicitly retract their own emergency
+    func cancelMyOwnEmergency(deviceID: String?, displayName: String) async {
+        guard hasGroup else { return }
+        let payload = CancelEmergencyPayload(
+            groupCode: normalizedGroupCode,
+            targetDeviceID: deviceID ?? "",
+            reason: "Wearer cancelled false alarm",
+            timestamp: Date()
+        )
+        do {
+            try await apiClient.cancelEmergencyAlert(payload)
+            syncStatus = "Cancelled emergency for \(displayName)"
+            postLocalNotificationPublic(title: "EMS Cancelled", body: "False alarm cancelled successfully.")
+        } catch {
+            queueCancelEmergency(payload)
+            syncStatus = "Cancel queued; AppSync failed: \(Self.describe(error))"
         }
     }
 
@@ -340,7 +357,6 @@ final class FamilyDeviceManager: ObservableObject {
     private func canSendNow() -> Bool { isNetworkReachable }
 
     func sendImmediateEmergencyFromApp(deviceID: String?, displayName: String, latitude: Double, longitude: Double, reason: String) {
-        // Throttle duplicate sends if multiple triggers happen in quick succession
         if let last = lastEmergencySentAt, Date().timeIntervalSince(last) < 10 { return }
         lastEmergencySentAt = Date()
         Task { [weak self] in
@@ -368,8 +384,6 @@ final class FamilyDeviceManager: ObservableObject {
     }
 
     private func queueCancelEmergency(_ payload: CancelEmergencyPayload) {
-        // Represent as an EmergencyAlertPayload with reason to reuse storage or keep a dedicated path?
-        // Keep a dedicated path by piggybacking on alerts array via a special reason
         let adapted = EmergencyAlertPayload(
             groupCode: payload.groupCode,
             deviceID: payload.targetDeviceID,
@@ -417,7 +431,7 @@ final class FamilyDeviceManager: ObservableObject {
             pendingTelemetry = remaining
         }
 
-        // Flush alerts (support both normal and cancel markers)
+        // Flush alerts
         if !pendingAlerts.isEmpty {
             var remaining: [EmergencyAlertPayload] = []
             for item in pendingAlerts {
@@ -439,9 +453,6 @@ final class FamilyDeviceManager: ObservableObject {
         return (sentT, sentA)
     }
 
-    /// Unwraps Amplify's APIError (and any underlying error it wraps) to produce
-    /// a real, readable description instead of Swift's generic "error 3" fallback.
-    /// Also prints full detail to the console for debugging.
     private static func describe(_ error: Error) -> String {
         if let apiError = error as? APIError {
             print("🔴 Full APIError: \(apiError)")

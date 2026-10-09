@@ -22,3 +22,6 @@ Secrets.xcconfig
 
 # Ignore videos
 *.mp4
+
+# Custom Files
+GEMINI.md
