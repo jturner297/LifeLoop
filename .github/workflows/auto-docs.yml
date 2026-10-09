@@ -42,17 +42,17 @@ jobs:
             let existingDocs = "";
 
             try {
-              existingDocs = fs.readFileSync("AppReadMe.md", "utf8");
+              existingDocs = fs.readFileSync("README.md", "utf8");
             } catch (error) {
               console.log(
-                "AppReadMe.md does not exist yet. A new documentation file will be generated."
+                "README.md does not exist yet. A new documentation file will be generated."
               );
             }
 
             const systemPrompt = `
             You are the iOS documentation agent for the LifeLoop repository.
 
-            Your job is to update AppReadMe.md based only on the code changes included in the supplied commit diff.
+            Your job is to update README.md based only on the code changes included in the supplied commit diff.
 
             Requirements:
 
@@ -62,13 +62,13 @@ jobs:
             4. Remove documentation that is clearly obsolete.
             5. Do not invent features or behavior that are not present in the code.
             6. Keep the documentation clear and organized.
-            7. Return only the complete Markdown contents for AppReadMe.md.
+            7. Return only the complete Markdown contents for README.md.
             `;
 
             const prompt = `
             ${systemPrompt}
 
-            Here is the current AppReadMe.md:
+            Here is the current README.md:
 
             ${existingDocs}
 
@@ -76,7 +76,7 @@ jobs:
 
             ${diff}
 
-            Rewrite the complete AppReadMe.md so that it accurately documents the current state of the project.
+            Rewrite the complete README.md so that it accurately documents the current state of the project.
             `;
 
             const requestBody = {
@@ -278,13 +278,13 @@ jobs:
             }
 
             fs.writeFileSync(
-              "AppReadMe.md",
+              "README.md",
               `${documentation}\n`,
               "utf8"
             );
 
             console.log(
-              `AppReadMe.md updated successfully using ${successfulModel}.`
+              `README.md updated successfully using ${successfulModel}.`
             );
 
       - name: Commit and Push Changes
@@ -295,12 +295,12 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
 
-          git add AppReadMe.md
+          git add README.md
 
           if git diff --cached --quiet; then
             echo "No documentation changes needed."
             exit 0
           fi
 
-          git commit -m "docs: auto-updated AppReadMe.md via LLM Agent"
+          git commit -m "docs: auto-updated README.md via LLM Agent"
           git push
