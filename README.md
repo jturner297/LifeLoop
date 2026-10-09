@@ -82,4 +82,4 @@ Communicates with AWS AppSync GraphQL API backend via Amplify API plugin.
 ## Infrastructure & CI/CD Updates
 
 ### Automated Documentation
-* **Auto-Docs Workflow (`.github/workflows/auto-docs.yml`):** Utilizes `gemini-3.6-flash` model endpoint for automated documentation maintenance upon repository updates.
+* **Auto-Docs Workflow (`.github/workflows/auto-docs.yml`):** Utilizes `gemini-3.6-flash` model endpoint for automated documentation maintenance upon repository updates. Configured to maintain and commit documentation directly to `README.md`.
