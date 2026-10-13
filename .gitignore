@@ -25,3 +25,8 @@ Secrets.xcconfig
 
 # Custom Files
 GEMINI.md
+EdgeImpulse_CSV/
+EdgeImpulse_CSV_Trimmed/
+SisFall_Input/
+format_sisfall.py
+
