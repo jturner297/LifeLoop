@@ -43,7 +43,12 @@
 		<string>fetch</string>
 	</array>
 	<key>UILaunchScreen</key>
-	<dict/>
+	<dict>
+		<key>LaunchBackground</key>
+		<string></string>
+		<key>LifeLoopLogo</key>
+		<string></string>
+	</dict>
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>
