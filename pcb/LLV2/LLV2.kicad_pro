@@ -658,15 +658,15 @@
       {
         "filename": "LLV2.kicad_sch",
         "name": "Root",
-        "uuid": "b139741f-b495-4a6b-bfa1-9bf69bd9bba5"
+        "uuid": "7afe2502-98d3-4f62-a31c-802fb5adb185"
       }
     ],
-    "used_designators": "U1-2,#PWR1-8,BZ1,J1,SW1",
+    "used_designators": "M1,U1,D1-2,#PWR9-14,Q1-3,R1-4",
     "variants": []
   },
   "sheets": [
     [
-      "b139741f-b495-4a6b-bfa1-9bf69bd9bba5",
+      "7afe2502-98d3-4f62-a31c-802fb5adb185",
       "Root"
     ]
   ],
