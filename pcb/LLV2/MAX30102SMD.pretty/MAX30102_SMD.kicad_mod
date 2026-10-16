@@ -7,7 +7,7 @@
 		(at 0 -0.5 0)
 		(unlocked yes)
 		(layer "F.SilkS")
-		(uuid "b4012313-eae6-4a44-8b1a-a6cd759d888b")
+		(uuid "b7d39a72-5368-46e1-a949-809e78d4d4be")
 		(effects
 			(font
 				(size 1 1)
@@ -19,7 +19,7 @@
 		(at 0 1 0)
 		(unlocked yes)
 		(layer "F.Fab")
-		(uuid "3d470f53-891a-47d7-8988-5768affbc772")
+		(uuid "7b31431a-f204-4e1c-8245-d1424bd553d2")
 		(effects
 			(font
 				(size 1 1)
@@ -32,7 +32,7 @@
 		(unlocked yes)
 		(layer "F.Fab")
 		(hide yes)
-		(uuid "1a4452fc-366e-41b1-9021-a9ba9c2c674a")
+		(uuid "e58e74e9-a704-440d-807d-9a8adbf7548c")
 		(effects
 			(font
 				(size 1 1)
@@ -45,7 +45,7 @@
 		(unlocked yes)
 		(layer "F.Fab")
 		(hide yes)
-		(uuid "2eb0f242-b421-4a4e-8869-887d39156329")
+		(uuid "fc139f56-c6be-4e5c-8a20-01ee971b73d7")
 		(effects
 			(font
 				(size 1 1)
@@ -64,13 +64,13 @@
 		)
 		(fill no)
 		(layer "F.SilkS")
-		(uuid "64f9c1b6-b8d5-4731-ac12-56c464f3bbe3")
+		(uuid "e66ad3bb-751e-47d1-a200-b2bb396dff8d")
 	)
 	(fp_text user "VIN"
 		(at -3.409 -2.413 90)
 		(unlocked yes)
 		(layer "F.SilkS")
-		(uuid "7f68c05e-843e-4953-94b1-c7ba252b23f9")
+		(uuid "b2add779-1f58-43c6-9d8c-12fe6a28a17c")
 		(effects
 			(font
 				(size 0.7 0.7)
@@ -83,7 +83,7 @@
 		(at -0.869 -2.159 90)
 		(unlocked yes)
 		(layer "F.SilkS")
-		(uuid "e9cf15a0-c8b4-489f-a210-466a7cbeff2b")
+		(uuid "17a4d1f6-6c38-4334-aec6-89595624ff67")
 		(effects
 			(font
 				(size 0.7 0.7)
@@ -96,7 +96,7 @@
 		(at 1.671 -2.159 90)
 		(unlocked yes)
 		(layer "F.SilkS")
-		(uuid "20c93fb1-f965-4ead-a2d8-9e1bf965ec82")
+		(uuid "7445a031-43bc-4a88-a3ed-64af7e7a1ffe")
 		(effects
 			(font
 				(size 0.7 0.7)
@@ -109,7 +109,7 @@
 		(at 4.211 -2.032 90)
 		(unlocked yes)
 		(layer "F.SilkS")
-		(uuid "e427c1cf-a531-428e-a1c2-7a890ace00c0")
+		(uuid "322b5a06-3d90-4b49-ae4d-72d9fb4484fa")
 		(effects
 			(font
 				(size 0.7 0.7)
@@ -122,7 +122,7 @@
 		(at 0 2.5 0)
 		(unlocked yes)
 		(layer "F.Fab")
-		(uuid "535a7401-a53a-418a-ad17-dd57697b82f6")
+		(uuid "0cf21900-d592-4967-9198-69440f5dcd3e")
 		(effects
 			(font
 				(size 1 1)
@@ -135,31 +135,31 @@
 		(size 1.4 1.7)
 		(layers "F.Cu" "F.Mask")
 		(thermal_bridge_angle 45)
-		(uuid "4e0ba890-881e-4e8b-8a87-f2dcb60eb880")
+		(uuid "5ac99ece-7c4b-43fa-bbc4-5b05d182c464")
 	)
 	(pad "3" smd rect
 		(at -1.27 -7.62)
 		(size 1.4 1.7)
 		(layers "F.Cu" "F.Mask")
 		(thermal_bridge_angle 45)
-		(uuid "c6ef9773-f3fd-4e5b-af4a-82fc6b1f5686")
+		(uuid "dc3c0539-9170-4da2-a2af-4223bf072b57")
 	)
 	(pad "11" smd rect
 		(at -3.81 -7.62)
 		(size 1.4 1.7)
 		(layers "F.Cu" "F.Mask")
-		(uuid "a2faf70f-eaed-4e7a-a711-5dfeef3466b1")
+		(uuid "d64d5034-77b4-4753-9220-3299fa570f7a")
 	)
 	(pad "12" smd rect
 		(at 3.81 -7.62)
 		(size 1.4 1.7)
 		(layers "F.Cu" "F.Mask")
 		(thermal_bridge_angle 45)
-		(uuid "ef53aa9e-ae64-4a63-a283-b978e4d35539")
+		(uuid "402da33c-45f2-430e-88c7-bc10b393b452")
 	)
 	(zone
 		(layer "F.SilkS")
-		(uuid "73f4523a-6b74-479a-aee7-e0332d903cd3")
+		(uuid "d771919a-07fd-40ee-86f3-382dd84469cd")
 		(hatch edge 0.5)
 		(connect_pads
 			(clearance 0)

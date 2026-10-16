@@ -3773,7 +3773,7 @@
 				)
 			)
 		)
-		(property "Footprint" "Package_SO:SOIC-8_3.9x4.9mm_P1.27mm"
+		(property "Footprint" "easyeda2kicad:KEY-SMD_4P-L4.8-W4.6-P1.70-LS6.2"
 			(at 96.52 80.01 0)
 			(hide yes)
 			(show_name no)
