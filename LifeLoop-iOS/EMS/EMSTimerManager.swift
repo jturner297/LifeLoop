@@ -61,6 +61,8 @@ class EMSTimerManager: ObservableObject {
                 self.isActive = false
                 self.isAlertTriggered = true
                 self.isCountingDown = false
+                
+                EmergencyAlarmManager.shared.stopAlarm()
             }
             
         }
