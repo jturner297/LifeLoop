@@ -90,7 +90,7 @@
 	(footprint "Seeed_Studio_XIAO_Series:XIAO-nRF52840-SMD"
 		(layer "F.Cu")
 		(uuid "1d7d13bc-2e4b-4c48-9b96-d0dd54617411")
-		(at 143 105.87)
+		(at 147.165 104.88)
 		(property "Reference" "U1"
 			(at 7.112 -21.336 0)
 			(layer "F.SilkS")
@@ -596,7 +596,7 @@
 	(footprint "Package_TO_SOT_SMD:SOT-23"
 		(layer "F.Cu")
 		(uuid "1de3b530-d003-4673-b6d2-610a9d5429d1")
-		(at 136.5625 118.5)
+		(at 132.9125 84.25)
 		(descr "SOT, 3 Pin (JEDEC TO-236 Var AB https://www.jedec.org/document_search?search_api_views_fulltext=TO-236)")
 		(tags "SOT TO_SOT_SMD")
 		(property "Reference" "Q2"
@@ -966,7 +966,7 @@
 	(footprint "Diode_SMD:D_SOD-123"
 		(layer "F.Cu")
 		(uuid "21eebddc-d644-4df5-bd24-37104233372a")
-		(at 129.25 95.75)
+		(at 125.6 61.5)
 		(descr "SOD-123")
 		(tags "SOD-123")
 		(property "Reference" "D2"
@@ -1282,7 +1282,7 @@
 	(footprint "Resistor_SMD:R_0603_1608Metric"
 		(layer "F.Cu")
 		(uuid "2a6de55d-73fb-448f-9f56-627b086b4655")
-		(at 136.955 130.555)
+		(at 187.305 141.055)
 		(descr "Resistor SMD 0603 (1608 Metric), square (rectangular) end terminal, IPC-7351 nominal, (Body size source: IPC-SM-782 page 72, https://www.pcb-3d.com/wordpress/wp-content/uploads/ipc-sm-782a_amendment_1_and_2.pdf)")
 		(tags "resistor")
 		(property "Reference" "R1"
@@ -1428,7 +1428,7 @@
 	(footprint "Resistor_SMD:R_0603_1608Metric"
 		(layer "F.Cu")
 		(uuid "56a849f6-db16-4449-b709-a38c6d860fbb")
-		(at 139.575 104)
+		(at 135.925 69.75)
 		(descr "Resistor SMD 0603 (1608 Metric), square (rectangular) end terminal, IPC-7351 nominal, (Body size source: IPC-SM-782 page 72, https://www.pcb-3d.com/wordpress/wp-content/uploads/ipc-sm-782a_amendment_1_and_2.pdf)")
 		(tags "resistor")
 		(property "Reference" "R3"
@@ -1574,7 +1574,7 @@
 	(footprint "Connector_PinHeader_2.54mm:PinHeader_1x02_P2.54mm_Vertical_SMD_Pin1Right"
 		(layer "F.Cu")
 		(uuid "6b68f2c9-f3a2-4788-bad5-b58c16599a78")
-		(at 156.595 112.52)
+		(at 189.5 109.5)
 		(descr "surface-mounted straight pin header, 1x02, 2.54mm pitch, single row, style 2 (pin 1 right)")
 		(tags "Surface mounted pin header SMD 1x02 2.54mm single row style2 pin1 right")
 		(property "Reference" "J1"
@@ -1880,7 +1880,7 @@
 	(footprint "Package_SO:SOIC-8_3.9x4.9mm_P1.27mm"
 		(layer "F.Cu")
 		(uuid "a06e1f45-2217-4b3a-81c6-81b88774370d")
-		(at 118.475 86.405)
+		(at 114.825 52.155)
 		(descr "SOIC, 8 Pin (JEDEC MS-012AA, https://www.analog.com/media/en/package-pcb-resources/package/pkg_pdf/soic_narrow-r/r_8.pdf)")
 		(tags "SOIC SO")
 		(property "Reference" "BZ1"
@@ -2232,7 +2232,7 @@
 	(footprint "Resistor_SMD:R_0603_1608Metric"
 		(layer "F.Cu")
 		(uuid "a57820f1-78ea-45ec-a7f0-fbc5802da3c1")
-		(at 130.325 104.25)
+		(at 126.675 70)
 		(descr "Resistor SMD 0603 (1608 Metric), square (rectangular) end terminal, IPC-7351 nominal, (Body size source: IPC-SM-782 page 72, https://www.pcb-3d.com/wordpress/wp-content/uploads/ipc-sm-782a_amendment_1_and_2.pdf)")
 		(tags "resistor")
 		(property "Reference" "R4"
@@ -2378,7 +2378,7 @@
 	(footprint "Resistor_SMD:R_0603_1608Metric"
 		(layer "F.Cu")
 		(uuid "aac0eaaf-cea6-4eaa-aa9b-29397d0ded33")
-		(at 136.955 133.065)
+		(at 187.305 143.565)
 		(descr "Resistor SMD 0603 (1608 Metric), square (rectangular) end terminal, IPC-7351 nominal, (Body size source: IPC-SM-782 page 72, https://www.pcb-3d.com/wordpress/wp-content/uploads/ipc-sm-782a_amendment_1_and_2.pdf)")
 		(tags "resistor")
 		(property "Reference" "R2"
@@ -2524,7 +2524,7 @@
 	(footprint "Package_TO_SOT_SMD:SOT-23"
 		(layer "F.Cu")
 		(uuid "db19d78f-c42f-4ba0-a800-5cc7c9f00d09")
-		(at 159.1875 127.95)
+		(at 209.5375 138.45)
 		(descr "SOT, 3 Pin (JEDEC TO-236 Var AB https://www.jedec.org/document_search?search_api_views_fulltext=TO-236)")
 		(tags "SOT TO_SOT_SMD")
 		(property "Reference" "Q1"
@@ -2894,7 +2894,7 @@
 	(footprint "easyeda2kicad:KEY-SMD_4P-L4.8-W4.6-P1.70-LS6.2"
 		(layer "F.Cu")
 		(uuid "dbaf2419-b465-4cd5-b558-a2f36e196d31")
-		(at 173.45 97.75 90)
+		(at 140.85 115.6 90)
 		(property "Reference" "SW1"
 			(at 0 -4.85 90)
 			(layer "F.SilkS")
@@ -2936,18 +2936,6 @@
 			(effects
 				(font
 					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "LCSC Part" "C136662"
-			(at 0 0 90)
-			(layer "F.Fab")
-			(hide yes)
-			(uuid "c93d1c69-2d19-4c86-a1d1-365df32bd7e8")
-			(effects
-				(font
-					(size 1.27 1.27)
-					(thickness 0.15)
 				)
 			)
 		)
@@ -3418,7 +3406,7 @@
 	(footprint "Diode_SMD:D_SOD-123"
 		(layer "F.Cu")
 		(uuid "e1337033-1f43-4bac-a66e-a382c0cdd9d4")
-		(at 118.65 106)
+		(at 183.15 130)
 		(descr "SOD-123")
 		(tags "SOD-123")
 		(property "Reference" "D1"
@@ -3734,12 +3722,12 @@
 	(footprint "MAX30102SMD:MAX30102_SMD"
 		(layer "B.Cu")
 		(uuid "5842ee9b-4af2-4163-ac0b-d0f73eb1ef29")
-		(at 75.465 72.58 -90)
+		(at 160.782 95.25 90)
 		(property "Reference" "U2"
-			(at 0 0.5 90)
+			(at 0 0.5 270)
 			(unlocked yes)
 			(layer "B.SilkS")
-			(uuid "37fb5835-ad74-44ae-9d94-b3ecae991be4")
+			(uuid "6d04bafb-7731-4ac9-b8f7-d324ef922b9a")
 			(effects
 				(font
 					(size 1 1)
@@ -3749,10 +3737,10 @@
 			)
 		)
 		(property "Value" "MAX30102"
-			(at 0 -1 90)
+			(at 0 -1 270)
 			(unlocked yes)
 			(layer "B.Fab")
-			(uuid "8c30b0c3-c455-45aa-a095-14a7def24f39")
+			(uuid "dbc83338-d4c8-49a8-8aa2-e1027d1d6141")
 			(effects
 				(font
 					(size 1 1)
@@ -3762,11 +3750,11 @@
 			)
 		)
 		(property "Datasheet" "https://datasheets.maximintegrated.com/en/ds/MAX30102.pdf"
-			(at 0 0 90)
+			(at 0 0 270)
 			(unlocked yes)
 			(layer "B.Fab")
 			(hide yes)
-			(uuid "22d56945-1f8c-4e22-b3e4-e5687ef93ce8")
+			(uuid "ccefaf6d-0f0e-43c4-a82b-22f3463a75a8")
 			(effects
 				(font
 					(size 1 1)
@@ -3776,11 +3764,11 @@
 			)
 		)
 		(property "Description" "Heart Rate Sensor, 14-OLGA"
-			(at 0 0 90)
+			(at 0 0 270)
 			(unlocked yes)
 			(layer "B.Fab")
 			(hide yes)
-			(uuid "17d33246-5bc2-4f1c-9788-3ad8163ed783")
+			(uuid "8c5b628d-0b89-4237-b9a8-7b1c1b73843f")
 			(effects
 				(font
 					(size 1 1)
@@ -3812,47 +3800,8 @@
 			(layer "B.SilkS")
 			(uuid "ddf070f5-3e33-4023-8ce3-49d7bd91fdac")
 		)
-		(fp_text user "VIN"
-			(at -3.409 2.413 0)
-			(unlocked yes)
-			(layer "B.SilkS")
-			(uuid "118c0c2f-11e1-4c7a-8242-a3e0bd6a5024")
-			(effects
-				(font
-					(size 0.7 0.7)
-					(thickness 0.1)
-				)
-				(justify left bottom mirror)
-			)
-		)
-		(fp_text user "SDA"
-			(at -0.869 2.159 0)
-			(unlocked yes)
-			(layer "B.SilkS")
-			(uuid "6ca5f9a1-ff13-41fa-99f9-f1c753ffd6c5")
-			(effects
-				(font
-					(size 0.7 0.7)
-					(thickness 0.1)
-				)
-				(justify left bottom mirror)
-			)
-		)
-		(fp_text user "SCL"
-			(at 1.671 2.159 0)
-			(unlocked yes)
-			(layer "B.SilkS")
-			(uuid "c5278897-2746-476d-80ea-7479971c6333")
-			(effects
-				(font
-					(size 0.7 0.7)
-					(thickness 0.1)
-				)
-				(justify left bottom mirror)
-			)
-		)
 		(fp_text user "GND"
-			(at 4.211 2.032 0)
+			(at 4.211 2.032 180)
 			(unlocked yes)
 			(layer "B.SilkS")
 			(uuid "e7556f58-2f68-4c61-b577-9a7b836a2189")
@@ -3864,8 +3813,47 @@
 				(justify left bottom mirror)
 			)
 		)
+		(fp_text user "SCL"
+			(at 1.671 2.159 180)
+			(unlocked yes)
+			(layer "B.SilkS")
+			(uuid "c5278897-2746-476d-80ea-7479971c6333")
+			(effects
+				(font
+					(size 0.7 0.7)
+					(thickness 0.1)
+				)
+				(justify left bottom mirror)
+			)
+		)
+		(fp_text user "SDA"
+			(at -0.869 2.159 180)
+			(unlocked yes)
+			(layer "B.SilkS")
+			(uuid "6ca5f9a1-ff13-41fa-99f9-f1c753ffd6c5")
+			(effects
+				(font
+					(size 0.7 0.7)
+					(thickness 0.1)
+				)
+				(justify left bottom mirror)
+			)
+		)
+		(fp_text user "VIN"
+			(at -3.409 2.413 180)
+			(unlocked yes)
+			(layer "B.SilkS")
+			(uuid "118c0c2f-11e1-4c7a-8242-a3e0bd6a5024")
+			(effects
+				(font
+					(size 0.7 0.7)
+					(thickness 0.1)
+				)
+				(justify left bottom mirror)
+			)
+		)
 		(fp_text user "${REFERENCE}"
-			(at 0 -2.5 90)
+			(at 0 -2.5 270)
 			(unlocked yes)
 			(layer "B.Fab")
 			(uuid "7fe7547e-7850-40e8-b3de-21996fa947b8")
@@ -3878,7 +3866,7 @@
 			)
 		)
 		(pad "2" smd rect
-			(at 1.27 7.62 270)
+			(at 1.27 7.62 90)
 			(size 1.4 1.7)
 			(layers "B.Cu" "B.Mask")
 			(net "Net-(U1-D5)")
@@ -3888,7 +3876,7 @@
 			(uuid "b9311ccf-a906-4032-988e-fd2ecfc0bd0a")
 		)
 		(pad "3" smd rect
-			(at -1.27 7.62 270)
+			(at -1.27 7.62 90)
 			(size 1.4 1.7)
 			(layers "B.Cu" "B.Mask")
 			(net "Net-(U1-D4)")
@@ -3898,7 +3886,7 @@
 			(uuid "74b5c502-58a9-44d2-8d1a-4867e65e0e78")
 		)
 		(pad "11" smd rect
-			(at -3.81 7.62 270)
+			(at -3.81 7.62 90)
 			(size 1.4 1.7)
 			(layers "B.Cu" "B.Mask")
 			(net "+3V3")
@@ -3907,7 +3895,7 @@
 			(uuid "de44a9af-3de4-4bc0-ac45-63b38c779d5a")
 		)
 		(pad "12" smd rect
-			(at 3.81 7.62 270)
+			(at 3.81 7.62 90)
 			(size 1.4 1.7)
 			(layers "B.Cu" "B.Mask")
 			(net "GND")
@@ -3942,7 +3930,7 @@
 			)
 			(polygon
 				(pts
-					(xy 67.765 62.43) (xy 67.765 82.73) (xy 83.165 82.73) (xy 83.165 62.43)
+					(xy 168.482 105.4) (xy 168.482 85.1) (xy 153.082 85.1) (xy 153.082 105.4)
 				)
 			)
 		)
