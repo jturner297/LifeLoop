@@ -13,8 +13,6 @@
 		586277EA306573B700E8E924 /* Danger Alarm Sound Effect.mp3 in Resources */ = {isa = PBXBuildFile; fileRef = 586277E9306573B700E8E924 /* Danger Alarm Sound Effect.mp3 */; };
 		586277EC3065749B00E8E924 /* EmergencyAlarmManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 586277EB3065748800E8E924 /* EmergencyAlarmManager.swift */; };
 		586278033075D39200E8E924 /* AppRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 586278023075D38E00E8E924 /* AppRootView.swift */; };
-		586278053075D3B200E8E924 /* RoleSelectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 586278043075D3AD00E8E924 /* RoleSelectionView.swift */; };
-		586278073075D3D700E8E924 /* WearerDashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 586278063075D3D200E8E924 /* WearerDashboardView.swift */; };
 		58A9C608305A219D007C41DC /* FamilyDevicesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58A9C604305A219D007C41DC /* FamilyDevicesView.swift */; };
 		58A9C609305A219D007C41DC /* FamilyAPIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58A9C606305A219D007C41DC /* FamilyAPIClient.swift */; };
 		58A9C60A305A219D007C41DC /* FamilyDeviceManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58A9C603305A219D007C41DC /* FamilyDeviceManager.swift */; };
@@ -24,7 +22,6 @@
 		58A9C615305B84A4007C41DC /* Helvetica-Neue-Condensed-Black.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 58A9C613305B84A4007C41DC /* Helvetica-Neue-Condensed-Black.ttf */; };
 		58A9C617305B8626007C41DC /* HexagonGrid.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58A9C616305B8603007C41DC /* HexagonGrid.swift */; };
 		58A9C619305B86AD007C41DC /* MarqueeText.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58A9C618305B86A4007C41DC /* MarqueeText.swift */; };
-		58EEBDCF3049B829007BB825 /* MapScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58EEBDCE3049B829007BB825 /* MapScreen.swift */; };
 		A10000000000000000000001 /* LifeLoopApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000001 /* LifeLoopApp.swift */; };
 		A10000000000000000000002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000002 /* ContentView.swift */; };
 		A10000000000000000000003 /* LifeLoopState.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000003 /* LifeLoopState.swift */; };
@@ -33,6 +30,14 @@
 		FB56C6123062D9DA00239815 /* AWSCognitoAuthPlugin in Frameworks */ = {isa = PBXBuildFile; productRef = FB56C6113062D9DA00239815 /* AWSCognitoAuthPlugin */; };
 		FB56C6143062D9DA00239815 /* Amplify in Frameworks */ = {isa = PBXBuildFile; productRef = FB56C6133062D9DA00239815 /* Amplify */; };
 		FB56C61A3062E3DD00239815 /* amplifyconfiguration.json in Resources */ = {isa = PBXBuildFile; fileRef = FB56C6193062E3DD00239815 /* amplifyconfiguration.json */; };
+		FB7413003089AD3D009D9EA5 /* SOSAlertStatusView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB7412FF3089AD3D009D9EA5 /* SOSAlertStatusView.swift */; };
+		FB7413023089AD66009D9EA5 /* AccountSetupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB7413013089AD66009D9EA5 /* AccountSetupView.swift */; };
+		FB908D8D308BF0DB00C8F30C /* LoopNotifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB908D8C308BF0DB00C8F30C /* LoopNotifications.swift */; };
+		FB908D8F308BF15D00C8F30C /* FamilyManagementViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB908D8E308BF15D00C8F30C /* FamilyManagementViews.swift */; };
+		FB908D91308BF18900C8F30C /* LifeLoopBrand.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB908D90308BF18900C8F30C /* LifeLoopBrand.swift */; };
+		FBE8927430896C88008C5B7A /* UserProfile.swift in Sources */ = {isa = PBXBuildFile; fileRef = FBE8927330896C88008C5B7A /* UserProfile.swift */; };
+		FBE8927630896C88008C5B7A /* LoopStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = FBE8927530896C88008C5B7A /* LoopStyle.swift */; };
+		FBE8927830896E07008C5B7A /* MemberEventsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FBE8927730896E07008C5B7A /* MemberEventsView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -43,8 +48,6 @@
 		586277EB3065748800E8E924 /* EmergencyAlarmManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmergencyAlarmManager.swift; sourceTree = "<group>"; };
 		586277EE3065818A00E8E924 /* Secrets.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Secrets.xcconfig; sourceTree = "<group>"; };
 		586278023075D38E00E8E924 /* AppRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppRootView.swift; sourceTree = "<group>"; };
-		586278043075D3AD00E8E924 /* RoleSelectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoleSelectionView.swift; sourceTree = "<group>"; };
-		586278063075D3D200E8E924 /* WearerDashboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WearerDashboardView.swift; sourceTree = "<group>"; };
 		58A9C603305A219D007C41DC /* FamilyDeviceManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FamilyDeviceManager.swift; sourceTree = "<group>"; };
 		58A9C604305A219D007C41DC /* FamilyDevicesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FamilyDevicesView.swift; sourceTree = "<group>"; };
 		58A9C606305A219D007C41DC /* FamilyAPIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FamilyAPIClient.swift; sourceTree = "<group>"; };
@@ -54,7 +57,6 @@
 		58A9C613305B84A4007C41DC /* Helvetica-Neue-Condensed-Black.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "Helvetica-Neue-Condensed-Black.ttf"; sourceTree = "<group>"; };
 		58A9C616305B8603007C41DC /* HexagonGrid.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HexagonGrid.swift; sourceTree = "<group>"; };
 		58A9C618305B86A4007C41DC /* MarqueeText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarqueeText.swift; sourceTree = "<group>"; };
-		58EEBDCE3049B829007BB825 /* MapScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapScreen.swift; sourceTree = "<group>"; };
 		B10000000000000000000001 /* LifeLoopApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LifeLoopApp.swift; sourceTree = "<group>"; };
 		B10000000000000000000002 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		B10000000000000000000003 /* LifeLoopState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LifeLoopState.swift; sourceTree = "<group>"; };
@@ -64,6 +66,15 @@
 		FB56C60C3061FDE700239815 /* Reexports.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Reexports.swift; sourceTree = "<group>"; };
 		FB56C60D3061FDE800239815 /* CoreLocationReexport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoreLocationReexport.swift; sourceTree = "<group>"; };
 		FB56C6193062E3DD00239815 /* amplifyconfiguration.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = amplifyconfiguration.json; sourceTree = "<group>"; };
+		FB7412FF3089AD3D009D9EA5 /* SOSAlertStatusView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SOSAlertStatusView.swift; sourceTree = "<group>"; };
+		FB7413013089AD66009D9EA5 /* AccountSetupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountSetupView.swift; sourceTree = "<group>"; };
+		FB908D8C308BF0DB00C8F30C /* LoopNotifications.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoopNotifications.swift; sourceTree = "<group>"; };
+		FB908D8E308BF15D00C8F30C /* FamilyManagementViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FamilyManagementViews.swift; sourceTree = "<group>"; };
+		FB908D90308BF18900C8F30C /* LifeLoopBrand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LifeLoopBrand.swift; sourceTree = "<group>"; };
+		FB908D92308BF26000C8F30C /* AWS_SETUP.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = AWS_SETUP.md; sourceTree = "<group>"; };
+		FBE8927330896C88008C5B7A /* UserProfile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserProfile.swift; sourceTree = "<group>"; };
+		FBE8927530896C88008C5B7A /* LoopStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoopStyle.swift; sourceTree = "<group>"; };
+		FBE8927730896E07008C5B7A /* MemberEventsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemberEventsView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -84,7 +95,6 @@
 			isa = PBXGroup;
 			children = (
 				580C66F93048F9C700C85FC7 /* LocationManager.swift */,
-				58EEBDCE3049B829007BB825 /* MapScreen.swift */,
 			);
 			path = Location;
 			sourceTree = "<group>";
@@ -100,11 +110,14 @@
 		586278013075D38900E8E924 /* Views */ = {
 			isa = PBXGroup;
 			children = (
-				586278063075D3D200E8E924 /* WearerDashboardView.swift */,
-				586278043075D3AD00E8E924 /* RoleSelectionView.swift */,
 				586278023075D38E00E8E924 /* AppRootView.swift */,
 				B10000000000000000000002 /* ContentView.swift */,
 				586277E73062D1E600E8E924 /* SettingsView.swift */,
+				FBE8927530896C88008C5B7A /* LoopStyle.swift */,
+				FBE8927730896E07008C5B7A /* MemberEventsView.swift */,
+				FB7412FF3089AD3D009D9EA5 /* SOSAlertStatusView.swift */,
+				FB7413013089AD66009D9EA5 /* AccountSetupView.swift */,
+				FB908D90308BF18900C8F30C /* LifeLoopBrand.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -140,6 +153,7 @@
 			children = (
 				58A9C603305A219D007C41DC /* FamilyDeviceManager.swift */,
 				58A9C604305A219D007C41DC /* FamilyDevicesView.swift */,
+				FB908D8E308BF15D00C8F30C /* FamilyManagementViews.swift */,
 			);
 			path = Family;
 			sourceTree = "<group>";
@@ -173,6 +187,7 @@
 				D10000000000000000000002 /* LifeLoop */,
 				FB56C60C3061FDE700239815 /* Reexports.swift */,
 				FB56C60D3061FDE800239815 /* CoreLocationReexport.swift */,
+				FB908D92308BF26000C8F30C /* AWS_SETUP.md */,
 				D10000000000000000000005 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -198,6 +213,8 @@
 			isa = PBXGroup;
 			children = (
 				B10000000000000000000003 /* LifeLoopState.swift */,
+				FBE8927330896C88008C5B7A /* UserProfile.swift */,
+				FB908D8C308BF0DB00C8F30C /* LoopNotifications.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -300,22 +317,27 @@
 			buildActionMask = 2147483647;
 			files = (
 				58A9C611305B6E43007C41DC /* EMSTimerManager.swift in Sources */,
-				58EEBDCF3049B829007BB825 /* MapScreen.swift in Sources */,
+				FB908D91308BF18900C8F30C /* LifeLoopBrand.swift in Sources */,
 				A10000000000000000000001 /* LifeLoopApp.swift in Sources */,
 				A10000000000000000000002 /* ContentView.swift in Sources */,
-				586278053075D3B200E8E924 /* RoleSelectionView.swift in Sources */,
-				586278073075D3D700E8E924 /* WearerDashboardView.swift in Sources */,
+				FBE8927630896C88008C5B7A /* LoopStyle.swift in Sources */,
 				58A9C60D305A2806007C41DC /* EMSCountdown.swift in Sources */,
+				FB908D8D308BF0DB00C8F30C /* LoopNotifications.swift in Sources */,
 				580C66FA3048F9CF00C85FC7 /* LocationManager.swift in Sources */,
 				A10000000000000000000003 /* LifeLoopState.swift in Sources */,
 				586277EC3065749B00E8E924 /* EmergencyAlarmManager.swift in Sources */,
 				586277E83062D20D00E8E924 /* SettingsView.swift in Sources */,
 				58A9C608305A219D007C41DC /* FamilyDevicesView.swift in Sources */,
+				FB7413003089AD3D009D9EA5 /* SOSAlertStatusView.swift in Sources */,
 				58A9C617305B8626007C41DC /* HexagonGrid.swift in Sources */,
 				58A9C609305A219D007C41DC /* FamilyAPIClient.swift in Sources */,
+				FBE8927430896C88008C5B7A /* UserProfile.swift in Sources */,
+				FBE8927830896E07008C5B7A /* MemberEventsView.swift in Sources */,
 				586278033075D39200E8E924 /* AppRootView.swift in Sources */,
+				FB908D8F308BF15D00C8F30C /* FamilyManagementViews.swift in Sources */,
 				58A9C60A305A219D007C41DC /* FamilyDeviceManager.swift in Sources */,
 				A10000000000000000000004 /* BLEMonitor.swift in Sources */,
+				FB7413023089AD66009D9EA5 /* AccountSetupView.swift in Sources */,
 				58A9C619305B86AD007C41DC /* MarqueeText.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -432,7 +454,7 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = GTR6K4S275;
+				DEVELOPMENT_TEAM = WY6STY3DZL;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
@@ -456,7 +478,7 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = GTR6K4S275;
+				DEVELOPMENT_TEAM = WY6STY3DZL;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;

@@ -1,373 +1,297 @@
 import SwiftUI
 
-private enum AppTab {
-    case devices
-    case family
-    case map
-}
-
 struct ContentView: View {
+    @Environment(UserProfile.self) private var profile
     @EnvironmentObject private var bleMonitor: BLEMonitor
-    @State private var isShowingAddDeviceSheet = false
+    @StateObject private var gps = LocationManager()
+    @StateObject private var timer = EMSTimerManager.shared
+    @State private var notifications = LoopNotifications.shared
+    @State private var notificationGroup: LoopGroup?
+    @State private var cancellationMessage = ""
+    @State private var showCancellationMessage = false
+    @State private var tab = 0
+    @State private var search = ""
+    @State private var filter = 0
+    @State private var addDevice = false
     @State private var selectedDevice: KnownDevice?
-    @State private var selectedTab: AppTab = .devices
-    @State private var showSettings = false
+    @State private var emergencyDeliveryMessage = "Sending an alert to your connected family…"
+    @State private var emergencyDeliveryTitle = "Sending alert"
+    @State private var emergencyTask: Task<Void, Never>?
+    @State private var emergencyRecipients: [FamilyDeviceManager] = []
+    @State private var emergencyDeviceID: String?
+    @State private var emergencySessionID = UUID()
+    @State private var isClosingEmergency = false
 
-    // GPS Logic & Data Managers
-    @StateObject private var GPS = LocationManager()
-    @StateObject private var familyManager = FamilyDeviceManager()
-    
-    @AppStorage("userAge") private var userAge: Int = 0
-
-    // Caregiver Emergency Alert State
-    @State private var showingEmergencyAlert = false
-    @State private var emergencyMessage = ""
-
-    private let background = Color(red: 5/255, green: 15/255, blue: 29/255)
-    private let surface = Color(red: 13/255, green: 27/255, blue: 43/255)
-    private let primaryText = Color(red: 235/255, green: 241/255, blue: 246/255)
-    private let secondaryText = Color(red: 119/255, green: 135/255, blue: 151/255)
-    private let teal = Color(red: 0/255, green: 210/255, blue: 174/255)
-    private let blue = Color(red: 24/255, green: 126/255, blue: 255/255)
-    private let warning = Color(red: 255/255, green: 194/255, blue: 86/255)
-
-    private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+    private var matchingDevices: [KnownDevice] {
+        bleMonitor.knownDevices.filter { search.isEmpty || $0.name.localizedCaseInsensitiveContains(search) }
+    }
 
     var body: some View {
-        NavigationStack {
-            ZStack(alignment: .bottom) {
-                Group {
-                    switch selectedTab {
-                    case .devices:
-                        dashboardView
-                    case .family:
-                        FamilyDevicesView(
-                            familyManager: familyManager,
-                            localDevices: bleMonitor.knownDevices,
-                            deviceStatuses: bleMonitor.deviceStatuses,
-                            background: background,
-                            surface: surface,
-                            primaryText: primaryText,
-                            secondaryText: secondaryText,
-                            teal: teal,
-                            warning: warning
-                        )
-                    case .map:
-                        MapScreen(
-                            targetLat: GPS.latitude,
-                            targetLon: GPS.longitude,
-                            statusText: GPS.statusText,
-                            familyDevices: familyManager.familyDevices
-                        )
-                    }
-                }
-                .sheet(isPresented: $isShowingAddDeviceSheet) {
-                    AddDeviceSheet(
-                        bleMonitor: bleMonitor,
-                        background: background,
-                        surface: surface,
-                        primaryText: primaryText,
-                        secondaryText: secondaryText,
-                        teal: teal
-                    )
-                }
-                .sheet(item: $selectedDevice) { device in
-                    DeviceProfileSheet(
-                        device: device,
-                        bleMonitor: bleMonitor,
-                        background: background,
-                        surface: surface,
-                        primaryText: primaryText,
-                        secondaryText: secondaryText,
-                        teal: teal,
-                        warning: warning
-                    )
-                }
-                .toolbar {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Button {
-                            showSettings = true
-                        } label: {
-                            Image(systemName: "gearshape.fill")
-                                .foregroundStyle(teal)
-                        }
-                    }
-                }
-                .sheet(isPresented: $showSettings) {
-                    SettingsView()
-                }
-
-                tabBar
-            }
-            .preferredColorScheme(.dark)
-            .onAppear {
-                familyManager.requestNotificationAuthorization()
-                if userAge == 0 {
-                    showSettings = true
-                }
-            }
-            .onReceive(timer) { _ in
-                bleMonitor.checkOfflineDevices()
-                familyManager.uploadLocalDevices(
-                    bleMonitor.knownDevices,
-                    statuses: bleMonitor.deviceStatuses,
-                    fallbackLatitude: GPS.latitude,
-                    fallbackLongitude: GPS.longitude
-                )
-                Task {
-                    await familyManager.refreshFamilyDevices(force: false)
-                }
-            }
-            .onChange(of: familyManager.familyDevices, perform: { newDevices in
-                for device in newDevices {
-                    if device.state == 4 {
-                        // FIXED: Changed device.name to device.displayName
-                        emergencyMessage = "\(device.displayName) has triggered an SOS Emergency!\nLocation: \(coordinateText(device.latitude)), \(coordinateText(device.longitude))"
-                        showingEmergencyAlert = true
-                    }
-                }
-            })
-            .alert("EMERGENCY", isPresented: $showingEmergencyAlert) {
-                Button("Acknowledge", role: .cancel) { }
-            } message: {
-                Text(emergencyMessage)
-            }
+        TabView(selection: $tab) {
+            NavigationStack { home }
+                .tabItem { Label { Text("Home") } icon: { Image(uiImage: LifeLoopBrand.tabIcon).renderingMode(.original) } }.tag(0)
+            NavigationStack { devices }
+                .tabItem { Label("Devices", systemImage: "wave.3.right") }.tag(1)
+            NavigationStack { GroupsView() }
+                .tabItem { Label("Groups", systemImage: "person.2") }.tag(2)
+            NavigationStack { ProfileView() }
+                .tabItem { Label("Profile", systemImage: "person") }.tag(3)
         }
-    }
-
-    private var tabBar: some View {
-        HStack(spacing: 10) {
-            tabButton(title: "Devices", systemImage: "wave.3.right", tab: .devices)
-            tabButton(title: "Family", systemImage: "person.2", tab: .family)
-            tabButton(title: "Map", systemImage: "map", tab: .map)
+        .tint(LoopStyle.green)
+        .sheet(isPresented: $addDevice) {
+            AddDeviceSheet(bleMonitor: bleMonitor, background: LoopStyle.background, surface: .white, primaryText: LoopStyle.ink, secondaryText: .secondary, teal: LoopStyle.green)
         }
-        .padding(8)
-        .background(surface.opacity(0.96))
-        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .padding(.horizontal, 18)
-        .padding(.bottom, 8)
-    }
-
-    private func tabButton(title: String, systemImage: String, tab: AppTab) -> some View {
-        Button {
-            selectedTab = tab
-        } label: {
-            Label(title, systemImage: systemImage)
-                .font(.system(size: 13, weight: .semibold))
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 10)
-                .foregroundStyle(selectedTab == tab ? background : primaryText)
-                .background(selectedTab == tab ? teal : Color.clear)
-                .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+        .sheet(item: $selectedDevice) { device in
+            DeviceProfileSheet(device: device, bleMonitor: bleMonitor, background: LoopStyle.background, surface: .white, primaryText: LoopStyle.ink, secondaryText: .secondary, teal: LoopStyle.green, warning: .orange)
         }
-        .buttonStyle(.plain)
-    }
-
-    private var dashboardView: some View {
-        ZStack(alignment: .bottomTrailing) {
-            background.ignoresSafeArea()
-
-            List {
-                headerSection
-                devicesSection
-            }
-            .listStyle(.plain)
-            .scrollContentBackground(.hidden)
-            .background(background)
-
-            Button(action: showAddDeviceSheet) {
-                Image(systemName: bleMonitor.isScanning ? "wave.3.right" : "plus")
-                    .font(.system(size: 22, weight: .bold))
-                    .foregroundStyle(background)
-                    .frame(width: 56, height: 56)
-                    .background(teal)
-                    .clipShape(RoundedRectangle(cornerRadius: 17, style: .continuous))
-            }
-            .buttonStyle(.plain)
-            .padding(.trailing, 18)
-            .padding(.bottom, 86)
-            .accessibilityLabel("Add LifeLoop device")
-        }
-    }
-
-    private var headerSection: some View {
-        Section {
-            VStack(alignment: .leading, spacing: 0) {
-                header
-                    .padding(.top, 28)
-
-                ECGWaveform(color: teal)
-                    .frame(height: 86)
-                    .padding(.top, 22)
-            }
-            .listRowBackground(background)
-            .listRowSeparator(.hidden)
-            .listRowInsets(EdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 20))
-        }
-    }
-
-    private var devicesSection: some View {
-        Section {
-            if bleMonitor.knownDevices.isEmpty {
-                emptyDeviceRow
-                    .listRowBackground(background)
-                    .listRowSeparator(.hidden)
-                    .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 4, trailing: 20))
+        .fullScreenCover(isPresented: Binding(
+            get: { timer.isActive || timer.isAlertTriggered },
+            set: { _ in }
+        )) {
+            if timer.isAlertTriggered {
+                SOSAlertStatusView(title: emergencyDeliveryTitle, message: emergencyDeliveryMessage, onClose: closeEmergency)
+                    .interactiveDismissDisabled()
             } else {
-                ForEach(bleMonitor.knownDevices) { device in
-                    deviceRow(for: device)
-                        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                            Button(role: .destructive) {
-                                bleMonitor.removeKnownDevice(device)
-                            } label: {
-                                Label("Remove", systemImage: "trash")
-                            }
-                        }
-                        .listRowBackground(background)
-                        .listRowSeparator(.hidden)
-                        .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 4, trailing: 20))
+                EMSCountdown(timerManager: timer, onCancel: closeEmergency).interactiveDismissDisabled()
+            }
+        }
+        .onChange(of: timer.isCountingDown) { _, counting in
+            if counting { sendEmergency() }
+        }
+        .onChange(of: notifications.selectedGroupCode) { _, code in
+            guard let code else { return }
+            tab = 2
+            notificationGroup = profile.groups.first { $0.id == code }
+            notifications.selectedGroupCode = nil
+        }
+        .sheet(item: $notificationGroup) { group in
+            if let manager = profile.managers[group.id] {
+                NavigationStack { GroupDetailView(group: group, manager: manager) }
+            }
+        }
+        .alert("Cancellation status", isPresented: $showCancellationMessage) {
+            Button("OK", role: .cancel) {}
+        } message: { Text(cancellationMessage) }
+        .task {
+            while !Task.isCancelled {
+                await profile.refreshFamilies(force: false)
+                if let code = notifications.selectedGroupCode, let group = profile.groups.first(where: { $0.id == code }) {
+                    tab = 2
+                    notificationGroup = group
+                    notifications.selectedGroupCode = nil
                 }
+                bleMonitor.checkOfflineDevices()
+                for manager in profile.managers.values {
+                    manager.uploadLocalDevices(bleMonitor.knownDevices, statuses: bleMonitor.deviceStatuses, fallbackLatitude: gps.latitude, fallbackLongitude: gps.longitude)
+                    await manager.refreshFamilyDevices(force: false)
+                }
+                do { try await Task.sleep(for: .seconds(5)) } catch { return }
             }
-        } header: {
-            Text("Devices")
-                .font(.system(size: 20, weight: .semibold))
-                .foregroundStyle(primaryText)
-                .textCase(nil)
-                .padding(.top, 8)
-                .padding(.leading, 4)
         }
     }
 
-    private var header: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(greeting)
-                .font(.system(size: 29, weight: .bold, design: .rounded))
-                .foregroundStyle(primaryText)
+    private var home: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 24) {
+                HStack {
+                    Image("LifeLoopLogo").resizable().scaledToFit().frame(width: 52, height: 52).accessibilityLabel("LifeLoop")
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text(greeting).font(.subheadline).foregroundStyle(.secondary)
+                        Text(profile.name).font(.title2.bold())
+                    }
+                    Spacer()
+                    Button { tab = 3 } label: { ProfileAvatar(name: profile.name) }
+                        .accessibilityLabel("Open profile")
+                }
+                HStack {
+                    Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                    TextField("Search member or device", text: $search)
+                }.loopCard()
+                if !profile.isSignedIn {
+                    Text("Sign in from Profile to connect with your family. Your Bluetooth devices still work here.").font(.footnote).foregroundStyle(.secondary)
+                }
+                Picker("Show", selection: $filter) {
+                    Text("Home").tag(0)
+                    Text("Family").tag(1)
+                    Text("Map").tag(2)
+                }.pickerStyle(.segmented)
+                if filter == 2 {
+                    ForEach(profile.groups) { group in
+                        if let manager = profile.managers[group.id] {
+                            GroupMapSection(manager: manager, title: group.name)
+                        }
+                    }
+                    if profile.groups.isEmpty {
+                        ContentUnavailableView("No shared locations yet", systemImage: "map", description: Text("Join a group to see your people on the map."))
+                    }
+                } else {
+                    if filter == 0 {
+                        HStack {
+                            Text("Devices").font(.title3.bold())
+                            Spacer()
+                            Button("See all") { tab = 1 }
+                        }
+                        emergencyButton
+                        localDeviceCards
+                    }
+                    ForEach(profile.groups) { group in
+                        if let manager = profile.managers[group.id] {
+                            MemberListSection(manager: manager, title: group.name, search: search)
+                        }
+                    }
+                    if filter == 1 && profile.groups.isEmpty {
+                        Button { tab = 2 } label: {
+                            Label("Join your first group", systemImage: "person.2.badge.plus").loopCard()
+                        }
+                    }
+                }
+            }.padding(24).frame(maxWidth: 720)
+        }
+        .loopPage().toolbar(.hidden, for: .navigationBar)
+    }
 
-            Text(attentionText)
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(secondaryText)
-            
-            Text(GPS.currentAddress)
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(teal)
-                .padding(.top, 2)
+    private var devices: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 22) {
+                Text("Your LifeLoop devices, connected to this phone.").foregroundStyle(.secondary)
+                Text(bleMonitor.bluetoothStateText).font(.footnote).foregroundStyle(LoopStyle.green)
+                localDeviceCards
+                Button { addDevice = true } label: {
+                    Label("Connect a device", systemImage: "plus").frame(maxWidth: .infinity)
+                }.buttonStyle(.borderedProminent).controlSize(.large)
+            }.padding(24).frame(maxWidth: 720)
+        }.loopPage().navigationTitle("Devices")
+    }
+
+    @ViewBuilder private var localDeviceCards: some View {
+        if matchingDevices.isEmpty {
+            ContentUnavailableView(search.isEmpty ? "No devices connected yet" : "No matching devices", systemImage: "wave.3.right", description: Text("Connect a LifeLoop device to see heart rate, battery, and connection details."))
+        }
+        ForEach(matchingDevices) { device in
+            let status = bleMonitor.deviceStatuses[device.id]
+            Button { selectedDevice = device } label: {
+                HStack(spacing: 16) {
+                    Image(systemName: "wave.3.right")
+                        .font(.title2).foregroundStyle(LoopStyle.green)
+                        .frame(width: 64, height: 72)
+                        .background(LoopStyle.mint, in: RoundedRectangle(cornerRadius: 16))
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(status?.name ?? device.name).font(.headline)
+                        Text(status?.isConnected == true ? "\(Int(status?.lifeLoopState.bpm ?? 0)) bpm" : "—").font(.subheadline)
+                        Text(status?.isConnected == true ? "Connected" : status?.isConnecting == true ? "Connecting…" : "Offline")
+                            .font(.caption).foregroundStyle(.secondary)
+                        if let status, status.isConnected, status.lifeLoopState.battery <= 10 {
+                            Label("Battery low · \(status.lifeLoopState.battery)%", systemImage: "battery.0").font(.caption).foregroundStyle(.red)
+                        }
+                    }
+                    Spacer()
+                    Image(systemName: "chevron.right").foregroundStyle(.secondary)
+                }.loopCard()
+            }.buttonStyle(.plain)
         }
     }
 
-    private var emptyDeviceRow: some View {
-        HStack(spacing: 12) {
-            RoundedRectangle(cornerRadius: 2)
-                .fill(secondaryText.opacity(0.55))
-                .frame(width: 3, height: 34)
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text("No saved LifeLoop devices")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(primaryText)
-
-                Text("Tap + to scan and add one")
-                    .font(.system(size: 12, weight: .regular))
-                    .foregroundStyle(secondaryText)
+    private var emergencyButton: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Button {
+                if timer.isAlertTriggered {
+                    closeEmergency()
+                } else {
+                    timer.startCountdown(reason: "MANUAL SOS")
+                    bleMonitor.sendSOSCommand()
+                }
+            } label: {
+                Label(timer.isAlertTriggered ? "Cancel emergency alert" : "Call Help", systemImage: timer.isAlertTriggered ? "xmark.circle" : "phone")
+                    .frame(maxWidth: .infinity).padding(.vertical, 8)
+            }.buttonStyle(.borderedProminent).tint(timer.isAlertTriggered ? .red : LoopStyle.green)
+                .disabled(isClosingEmergency)
+            if isClosingEmergency { ProgressView("Sending cancellation…") }
+            if timer.isAlertTriggered {
+                Text(profile.groups.isEmpty ? "No group is available to notify." : "Check your group’s sync status for alert delivery.")
+                    .font(.footnote).foregroundStyle(.secondary)
             }
-
-            Spacer()
         }
-        .padding(.vertical, 12)
     }
 
     private var greeting: String {
         let hour = Calendar.current.component(.hour, from: Date())
-        if hour < 12 { return "Good Morning" }
-        if hour < 17 { return "Good Afternoon" }
-        return "Good Evening"
+        return hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening"
     }
 
-    private func coordinateText(_ coordinate: Double?) -> String {
-        guard let coordinate else { return "Waiting" }
-        return String(format: "%.4f", coordinate)
-    }
-
-    private var attentionText: String {
-        let connectedCount = bleMonitor.deviceStatuses.values.filter { $0.isConnected }.count
-        let totalCount = bleMonitor.knownDevices.count
-        if totalCount == 0 { return "No devices added" }
-        return "\(connectedCount) of \(totalCount) devices connected"
-    }
-
-    private var connectionColor: Color {
-        if bleMonitor.isConnected { return teal }
-        if bleMonitor.isScanning { return warning }
-        return secondaryText
-    }
-
-    private func deviceRow(for device: KnownDevice) -> some View {
-        let status = bleMonitor.deviceStatuses[device.id] ?? DeviceStatus(deviceID: device.id, name: device.name)
-        let accent = status.isConnected ? teal : (status.isConnecting ? warning : secondaryText)
-
-        return HStack(spacing: 12) {
-            RoundedRectangle(cornerRadius: 2)
-                .fill(accent)
-                .frame(width: 3, height: 42)
-
-            VStack(alignment: .leading, spacing: 5) {
-                Text(status.name)
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(primaryText)
-                    .lineLimit(1)
-
-                HStack(spacing: 6) {
-                    if status.isConnecting {
-                        ProgressView()
-                            .controlSize(.mini)
-                            .tint(teal)
-                    }
-
-                    Text(statusText(for: status))
-                        .font(.system(size: 12, weight: .regular))
-                        .foregroundStyle(secondaryText)
-                        .lineLimit(1)
+    private func sendEmergency() {
+        let sessionID = UUID()
+        emergencySessionID = sessionID
+        let recipients = Array(profile.managers.values)
+        let deviceID = bleMonitor.knownDevices.first?.id
+        let ownerName = profile.name
+        let latitude = gps.latitude
+        let longitude = gps.longitude
+        let reason = timer.triggerReason
+        emergencyRecipients = recipients
+        emergencyDeviceID = deviceID
+        emergencyDeliveryTitle = recipients.isEmpty ? "No family group connected" : "Sending alert"
+        emergencyDeliveryMessage = recipients.isEmpty
+            ? "No alert was sent. Add a family group from the Groups tab."
+            : "Sending an alert to your connected family…"
+        for manager in recipients { manager.beginEmergencySession() }
+        emergencyTask = Task {
+            var sent = 0
+            for manager in recipients {
+                if await manager.sendMyEmergencyAlert(deviceID: deviceID, displayName: ownerName, latitude: latitude, longitude: longitude, reason: reason) {
+                    sent += 1
                 }
             }
-
-            Spacer()
-
-            Text(metricText(for: status))
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(status.isConnected ? teal : secondaryText)
-                .monospacedDigit()
+            guard emergencySessionID == sessionID, timer.isActive || timer.isAlertTriggered, !recipients.isEmpty else { return }
+            if let deadline = recipients.compactMap({ $0.activeAlert?.callDate }).min(), timer.isActive {
+                timer.synchronizeCallDeadline(deadline)
+            }
+            if sent == recipients.count {
+                emergencyDeliveryTitle = "Alert sent"
+                emergencyDeliveryMessage = "Your family alerts were accepted. The service will call saved contacts after its grace period. Calls already started cannot be canceled."
+            } else if sent > 0 {
+                emergencyDeliveryTitle = "Alert partially sent"
+                emergencyDeliveryMessage = "Some family groups received the alert. Delivery to other groups could not be confirmed. Check their recent alerts."
+            } else {
+                emergencyDeliveryTitle = "Delivery unconfirmed"
+                emergencyDeliveryMessage = "We could not confirm delivery. Check your connection and family alerts. No delayed SOS will be replayed automatically."
+            }
         }
-        .contentShape(Rectangle())
-        .padding(.vertical, 12)
-        .onTapGesture {
-            selectedDevice = device
+    }
+
+    private func closeEmergency() {
+        emergencySessionID = UUID()
+        isClosingEmergency = true
+        let delivery = emergencyTask
+        let recipients = emergencyRecipients
+        let deviceID = emergencyDeviceID
+        let ownerName = profile.name
+        bleMonitor.sendCancelCommand()
+        timer.cancelCountdown()
+        tab = 0
+        filter = 0
+        search = ""
+        // Send cancellation after the in-flight alert to preserve ordering.
+        Task {
+            await delivery?.value
+            for manager in recipients {
+                await manager.cancelMyOwnEmergency(deviceID: deviceID, displayName: ownerName)
+            }
+            let failures = recipients.compactMap { $0.emergencyError }
+            if !failures.isEmpty {
+                cancellationMessage = failures.joined(separator: "\n")
+                showCancellationMessage = true
+            }
+            isClosingEmergency = false
         }
-    }
-
-    private func statusText(for status: DeviceStatus) -> String {
-        if status.isConnecting { return "Connecting" }
-        if status.isConnected { return "Connected" }
-        return "Offline"
-    }
-
-    private func metricText(for status: DeviceStatus) -> String {
-        guard status.isConnected else { return "--" }
-        let bpm = Int(status.lifeLoopState.bpm.rounded())
-        return bpm > 0 ? "\(bpm) bpm" : "Connected"
-    }
-
-    private func showAddDeviceSheet() {
-        isShowingAddDeviceSheet = true
-        bleMonitor.startScanning()
     }
 }
-
-private struct DeviceProfileSheet: View {
+struct DeviceProfileSheet: View {
     let device: KnownDevice
     @ObservedObject var bleMonitor: BLEMonitor
     @Environment(\.dismiss) private var dismiss
     @State private var deviceName: String
     @State private var isLogExpanded = false
+    @State private var removeDevice = false
 
     let background: Color
     let surface: Color
@@ -430,7 +354,13 @@ private struct DeviceProfileSheet: View {
                     .listRowBackground(surface)
                 }
 
-                Section("BLE Data") {
+                Section("Location") {
+                    MemberMap(name: status.name, latitude: status.lifeLoopState.latitude, longitude: status.lifeLoopState.longitude, shared: true)
+                        .listRowInsets(EdgeInsets())
+                }
+
+                Section("Device information") {
+                    telemetryRow(title: "Battery", value: status.lastUpdated == nil ? "—" : "\(status.lifeLoopState.battery)%")
                     telemetryRow(title: "BPM", value: bpmText)
                     telemetryRow(title: "State", value: "\(status.lifeLoopState.state)")
                     telemetryRow(title: "Latitude", value: coordinateText(status.lifeLoopState.latitude))
@@ -438,6 +368,9 @@ private struct DeviceProfileSheet: View {
                     telemetryRow(title: "Last Update", value: lastUpdatedText)
                 }
 
+                Section {
+                    Button("Remove device", role: .destructive) { removeDevice = true }
+                }
                 Section("Raw Payload") {
                     Text(status.lastPayload.isEmpty ? "No BLE data received yet" : status.lastPayload)
                         .font(.system(size: 12, weight: .regular, design: .monospaced))
@@ -472,6 +405,12 @@ private struct DeviceProfileSheet: View {
                     .listRowBackground(surface)
                 }
             }
+            .confirmationDialog("Remove this device from your phone?", isPresented: $removeDevice, titleVisibility: .visible) {
+                Button("Remove device", role: .destructive) {
+                    bleMonitor.removeKnownDevice(device)
+                    dismiss()
+                }
+            }
             .navigationTitle(currentDevice?.name ?? device.name)
             .navigationBarTitleDisplayMode(.inline)
             .scrollContentBackground(.hidden)
@@ -484,7 +423,7 @@ private struct DeviceProfileSheet: View {
                 }
             }
         }
-        .preferredColorScheme(.dark)
+        .preferredColorScheme(.light)
     }
 
     private var currentDevice: KnownDevice? {
@@ -550,7 +489,7 @@ private struct DeviceProfileSheet: View {
     }
 }
 
-private struct AddDeviceSheet: View {
+struct AddDeviceSheet: View {
     @ObservedObject var bleMonitor: BLEMonitor
     @Environment(\.dismiss) private var dismiss
 
@@ -639,7 +578,8 @@ private struct AddDeviceSheet: View {
                 }
             }
         }
-        .preferredColorScheme(.dark)
+        .preferredColorScheme(.light)
+        .onDisappear { bleMonitor.stopScanning() }
         .onAppear {
             if !bleMonitor.isScanning {
                 bleMonitor.startScanning()
@@ -648,43 +588,3 @@ private struct AddDeviceSheet: View {
     }
 }
 
-private struct ECGWaveform: View {
-    let color: Color
-
-    var body: some View {
-        GeometryReader { geometry in
-            let width = geometry.size.width
-            let height = geometry.size.height
-            let mid = height * 0.52
-
-            Path { path in
-                let points: [(CGFloat, CGFloat)] = [
-                    (0.00, 0.52), (0.11, 0.52), (0.13, 0.50), (0.15, 0.50),
-                    (0.17, 0.23), (0.185, 0.75), (0.205, 0.47), (0.24, 0.52),
-                    (0.40, 0.52), (0.42, 0.50), (0.44, 0.50), (0.46, 0.23),
-                    (0.475, 0.75), (0.495, 0.47), (0.53, 0.52), (0.70, 0.52),
-                    (0.72, 0.50), (0.74, 0.50), (0.76, 0.23), (0.775, 0.75),
-                    (0.795, 0.47), (0.83, 0.52), (1.00, 0.52)
-                ]
-
-                guard let first = points.first else { return }
-                path.move(to: CGPoint(x: first.0 * width, y: first.1 * height))
-                for point in points.dropFirst() {
-                    path.addLine(to: CGPoint(x: point.0 * width, y: point.1 * height))
-                }
-            }
-            .stroke(color.opacity(0.78), style: StrokeStyle(lineWidth: 1.25, lineCap: .round, lineJoin: .round))
-
-            Circle()
-                .fill(color)
-                .frame(width: 5, height: 5)
-                .position(x: width * 0.28, y: mid)
-                .shadow(color: color.opacity(0.5), radius: 4)
-        }
-    }
-}
-
-#Preview {
-    ContentView()
-        .environmentObject(BLEMonitor())
-}

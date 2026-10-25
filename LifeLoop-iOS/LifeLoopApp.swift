@@ -10,7 +10,7 @@ struct LifeLoopApp: App {
 
     init() {
         configureAmplify()
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
+        LoopNotifications.shared.configure()
     }
 
     var body: some Scene {

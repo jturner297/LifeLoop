@@ -1,468 +1,181 @@
 import Foundation
-import UserNotifications
 import CoreLocation
-import Amplify
-import Network
+
+struct MemberEvent: Identifiable, Codable {
+    let id: UUID
+    let deviceID: String
+    let title: String
+    let date: Date
+}
 
 @MainActor
 final class FamilyDeviceManager: ObservableObject {
     @Published var groupCode: String
     @Published private(set) var linkedDeviceIDs: Set<String>
-    @Published var isLocationSharingEnabled: Bool {
-        didSet {
-            UserDefaults.standard.set(isLocationSharingEnabled, forKey: locationSharingEnabledKey)
-            syncStatus = isLocationSharingEnabled ? "Map location sharing is on" : "Map location sharing is off"
-        }
-    }
     @Published private(set) var familyDevices: [FamilyDeviceSnapshot] = []
-    @Published private(set) var addressCache: [String: String] = [:] // deviceID -> address
-    @Published private(set) var syncStatus = "AppSync not configured"
+    @Published private(set) var recentEvents: [MemberEvent] = []
+    @Published private(set) var alerts: [CloudAlert] = []
+    @Published private(set) var addressCache: [String: String] = [:]
+    @Published private(set) var syncStatus = "Ready to sync"
     @Published private(set) var isSyncing = false
+    @Published private(set) var activeAlert: CloudAlert?
+    @Published private(set) var emergencyError: String?
 
     private let apiClient: FamilyAPIClient
-    private let groupCodeKey = "com.lifeloop.family.groupCode"
-    private let linkedDeviceIDsKey = "com.lifeloop.family.linkedDeviceIDs"
-    private let locationSharingEnabledKey = "com.lifeloop.family.locationSharingEnabled"
-    private var uploadTasks: Set<String> = []
-    private var lastRefreshDate: Date?
+    private let linkedKey: String
+    private var lastRefresh: Date?
+    private var lastUploads: [String: Date] = [:]
+    private var uploading: Set<String> = []
     private let geocoder = CLGeocoder()
-    private var lastGeocode: [String: Date] = [:]
+    private var lastLocations: [String: CLLocation] = [:]
+    private var pendingInput: StartEmergencyInput?
 
-    // Offline queue & reachability
-    private let pendingTelemetryKey = "com.lifeloop.family.pendingTelemetry"
-    private let pendingAlertsKey = "com.lifeloop.family.pendingAlerts"
-    private let monitor = NWPathMonitor()
-    private var isNetworkReachable = true
-    private var pendingTelemetry: [FamilyTelemetryPayload] = []
-    private var pendingAlerts: [EmergencyAlertPayload] = []
-    private var lastEmergencySentAt: Date?
-
-    init(apiClient: FamilyAPIClient = .shared) {
+    init(apiClient: FamilyAPIClient = .shared, groupCode: String? = nil) {
         self.apiClient = apiClient
-        groupCode = UserDefaults.standard.string(forKey: groupCodeKey) ?? ""
-        linkedDeviceIDs = Set(UserDefaults.standard.stringArray(forKey: linkedDeviceIDsKey) ?? [])
-        if UserDefaults.standard.object(forKey: locationSharingEnabledKey) == nil {
-            isLocationSharingEnabled = true
-        } else {
-            isLocationSharingEnabled = UserDefaults.standard.bool(forKey: locationSharingEnabledKey)
+        let code = groupCode ?? ""
+        self.groupCode = code
+        linkedKey = "com.lifeloop.family.linkedDeviceIDs." + code
+        linkedDeviceIDs = Set(UserDefaults.standard.stringArray(forKey: linkedKey) ?? [])
+        if let data = UserDefaults.standard.data(forKey: "emergency.active." + code) {
+            activeAlert = try? JSONDecoder().decode(CloudAlert.self, from: data)
         }
-
-        loadPendingQueues()
-
-        // Start reachability monitoring to flush when network is back
-        let queue = DispatchQueue(label: "com.lifeloop.reachability")
-        monitor.pathUpdateHandler = { [weak self] path in
-            guard let self else { return }
-            let reachable = path.status == .satisfied
-            Task { @MainActor in
-                self.isNetworkReachable = reachable
-                if reachable {
-                    _ = await self.flushPendingQueues()
-                }
-            }
-        }
-        monitor.start(queue: queue)
     }
 
-    var hasGroup: Bool {
-        !normalizedGroupCode.isEmpty
-    }
+    var hasGroup: Bool { !groupCode.isEmpty }
+    private var sharesInformation: Bool { UserDefaults.standard.object(forKey: "profile.shareDeviceInformation") as? Bool ?? true }
+    private var sharesLocation: Bool { UserDefaults.standard.object(forKey: "com.lifeloop.family.locationSharingEnabled") as? Bool ?? true }
 
-    func saveGroupCode() {
-        UserDefaults.standard.set(normalizedGroupCode, forKey: groupCodeKey)
-        groupCode = normalizedGroupCode
-        syncStatus = hasGroup ? "Family group saved" : "Enter a family group code"
-    }
-
-    func requestNotificationAuthorization() {
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
+    func stopSharing() {
+        linkedDeviceIDs = []
+        UserDefaults.standard.set([], forKey: linkedKey)
+        groupCode = ""
     }
 
     func toggleLink(for device: KnownDevice) {
         if linkedDeviceIDs.contains(device.id) {
             linkedDeviceIDs.remove(device.id)
-            saveLinkedDeviceIDs()
-            syncStatus = "Stopped sharing \(device.name)"
         } else {
             linkedDeviceIDs.insert(device.id)
-            saveLinkedDeviceIDs()
-            syncStatus = "Sharing \(device.name) with family"
-            Task {
-                await linkDevice(device)
-            }
         }
+        UserDefaults.standard.set(Array(linkedDeviceIDs), forKey: linkedKey)
     }
 
-    func uploadLocalDevices(
-        _ devices: [KnownDevice],
-        statuses: [String: DeviceStatus],
-        fallbackLatitude: Double,
-        fallbackLongitude: Double
-    ) {
-        guard hasGroup else { return }
-
+    func uploadLocalDevices(_ devices: [KnownDevice], statuses: [String: DeviceStatus], fallbackLatitude: Double, fallbackLongitude: Double) {
+        guard hasGroup, sharesInformation else { return }
         for device in devices where linkedDeviceIDs.contains(device.id) {
-            let status = statuses[device.id]
-            if let status, status.isConnected {
-                let sharedCoordinate = coordinateForSharing(
-                    status: status,
-                    fallbackLatitude: fallbackLatitude,
-                    fallbackLongitude: fallbackLongitude
-                )
-                let payload = FamilyTelemetryPayload(
-                    groupCode: normalizedGroupCode,
-                    deviceID: device.id,
-                    displayName: status.name,
-                    bpm: status.lifeLoopState.bpm,
-                    state: status.lifeLoopState.state,
-                    latitude: sharedCoordinate.latitude,
-                    longitude: sharedCoordinate.longitude,
-                    isLocationShared: isLocationSharingEnabled,
-                    isOnline: status.isConnected,
-                    lastUpdated: status.lastUpdated
-                )
-                let uploadKey = "\(device.id)-\(Int(status.lastUpdated?.timeIntervalSince1970 ?? 0))"
-                guard !uploadTasks.contains(uploadKey) else { continue }
-                uploadTasks.insert(uploadKey)
-
-                Task {
-                    await uploadTelemetry(payload, uploadKey: uploadKey)
-                }
-            } else {
-                // Device is offline – periodically update AWS so family sees offline state
-                let minuteBucket = Int(Date().timeIntervalSince1970 / 60)
-                let uploadKey = "offline-\(device.id)-\(minuteBucket)"
-                guard !uploadTasks.contains(uploadKey) else { continue }
-                uploadTasks.insert(uploadKey)
-
-                let payload = FamilyTelemetryPayload(
-                    groupCode: normalizedGroupCode,
-                    deviceID: device.id,
-                    displayName: status?.name ?? device.name,
-                    bpm: 0,
-                    state: status?.lifeLoopState.state ?? 0,
-                    latitude: 0,
-                    longitude: 0,
-                    isLocationShared: false,
-                    isOnline: false,
-                    lastUpdated: nil
-                )
-                Task {
-                    await uploadTelemetry(payload, uploadKey: uploadKey)
-                }
+            guard !uploading.contains(device.id), Date().timeIntervalSince(lastUploads[device.id] ?? .distantPast) > 15 else { continue }
+            uploading.insert(device.id)
+            let code = groupCode
+            Task {
+                defer { uploading.remove(device.id); lastUploads[device.id] = Date() }
+                do {
+                    try await apiClient.linkDevice(LinkDevicePayload(groupCode: code, deviceID: device.id, displayName: device.name))
+                    guard hasGroup, sharesInformation, linkedDeviceIDs.contains(device.id) else { return }
+                    let status = statuses[device.id]
+                    let state = status?.lifeLoopState
+                    let hasDeviceLocation = state.map { $0.latitude != 0 || $0.longitude != 0 } ?? false
+                    let online = status?.isConnected == true
+                    let latitude = hasDeviceLocation ? state?.latitude ?? 0 : fallbackLatitude
+                    let longitude = hasDeviceLocation ? state?.longitude ?? 0 : fallbackLongitude
+                    let payload = FamilyTelemetryPayload(groupCode: code, deviceID: device.id, displayName: device.name,
+                        bpm: online ? state?.bpm ?? 0 : 0, state: state?.state ?? 0,
+                        latitude: sharesLocation && online ? latitude : 0,
+                        longitude: sharesLocation && online ? longitude : 0,
+                        isLocationShared: sharesLocation && online, isOnline: online, lastUpdated: status?.lastUpdated)
+                    try await apiClient.uploadTelemetry(payload)
+                } catch { syncStatus = error.localizedDescription }
             }
         }
     }
 
     func refreshFamilyDevices(force: Bool = true) async {
-        guard hasGroup else {
-            syncStatus = "Enter a family group code"
-            return
-        }
-        if !force,
-           let lastRefreshDate,
-           Date().timeIntervalSince(lastRefreshDate) < 15 {
-            return
-        }
-
+        guard hasGroup, !isSyncing else { return }
+        if !force && Date().timeIntervalSince(lastRefresh ?? .distantPast) < 10 { return }
         isSyncing = true
-        defer { isSyncing = false }
-
+        defer { isSyncing = false; lastRefresh = Date() }
         do {
-            let previous = familyDevices
-            let fetched = try await apiClient.fetchFamilyDevices(groupCode: normalizedGroupCode)
-            familyDevices = fetched
-            lastRefreshDate = Date()
-            syncStatus = "Family devices updated"
-            notifyIfEmergencyDetected(previous: previous, current: fetched)
-            fetched.forEach { resolveAddress(for: $0) }
-        } catch {
-            syncStatus = "AppSync fetch failed: \(Self.describe(error))"
-        }
-    }
-
-    private func notifyIfEmergencyDetected(previous: [FamilyDeviceSnapshot], current: [FamilyDeviceSnapshot]) {
-        let previousByID = Dictionary(uniqueKeysWithValues: previous.map { ($0.id, $0) })
-        for device in current {
-            let was = previousByID[device.id]
-            let hadEmergencyBefore = (was?.state == 2) || (was?.state == 4) || ((was?.bpm ?? 0) > 0 && (was?.bpm ?? 0) <= 40)
-            let hasEmergencyNow = (device.state == 2) || (device.state == 4) || (device.bpm > 0 && device.bpm <= 40)
-            if hasEmergencyNow && !hadEmergencyBefore {
-                var reason = "may need help."
-                if device.state == 4 {
-                    reason = "is in an EMERGENCY state!"
-                } else if device.state == 2 {
-                    reason = "has experienced a fall."
-                } else if device.bpm > 0 && device.bpm <= 40 {
-                    reason = "has critical BPM: \(Int(device.bpm))."
-                }
-                postLocalNotificationPublic(title: "Emergency: \(device.displayName)", body: "\(device.ownerName) \(reason)")
+            familyDevices = try await apiClient.fetchFamilyDevices(groupCode: groupCode)
+            alerts = try await apiClient.alerts(code: groupCode)
+            if let current = activeAlert, let updated = alerts.first(where: { $0.id == current.id }) {
+                activeAlert = updated
+                persistActiveAlert()
             }
-        }
+            LoopNotifications.shared.receive(alerts)
+            syncStatus = "Updated " + Date().formatted(date: .omitted, time: .shortened)
+            for device in familyDevices { resolveAddress(for: device) }
+        } catch { syncStatus = error.localizedDescription }
     }
 
     func resolveAddress(for device: FamilyDeviceSnapshot) {
-        guard device.isLocationShared, (device.latitude != 0 || device.longitude != 0) else { return }
-        let key = device.id
-        if let _ = addressCache[key] { return }
-        let now = Date()
-        if let last = lastGeocode[key], now.timeIntervalSince(last) < 60 { return }
-        lastGeocode[key] = now
+        guard device.isLocationShared, device.latitude != 0 || device.longitude != 0 else {
+            addressCache.removeValue(forKey: device.id)
+            return
+        }
         let location = CLLocation(latitude: device.latitude, longitude: device.longitude)
-        geocoder.reverseGeocodeLocation(location) { [weak self] placemarks, error in
-            guard let self else { return }
-            if let placemark = placemarks?.first, error == nil {
-                let streetNum = placemark.subThoroughfare ?? ""
-                let streetName = placemark.thoroughfare ?? ""
-                let city = placemark.locality ?? ""
-                let state = placemark.administrativeArea ?? ""
-                let address = "\(streetNum) \(streetName), \(city) \(state)".trimmingCharacters(in: .whitespacesAndNewlines)
-                Task { @MainActor in
-                    self.addressCache[key] = address.isEmpty ? String(format: "%.5f, %.5f", device.latitude, device.longitude) : address
-                }
-            }
+        if let previous = lastLocations[device.id], location.distance(from: previous) < 100 { return }
+        lastLocations[device.id] = location
+        geocoder.reverseGeocodeLocation(location) { [weak self] placemarks, _ in
+            let address = placemarks?.first.map { [$0.locality, $0.administrativeArea].compactMap { $0 }.joined(separator: ", ") }
+            Task { @MainActor in self?.addressCache[device.id] = address }
         }
     }
 
-    private func linkDevice(_ device: KnownDevice) async {
-        guard hasGroup else { return }
-
+    /// Called at countdown start. AWS owns the grace period, and alertID stays stable on retry.
+    @discardableResult
+    func sendMyEmergencyAlert(deviceID: String?, displayName: String, latitude: Double, longitude: Double, reason: String) async -> Bool {
+        guard hasGroup else { return false }
+        emergencyError = nil
+        let input = pendingInput ?? StartEmergencyInput(alertID: UUID().uuidString, groupCode: groupCode, deviceID: deviceID, displayName: displayName, latitude: sharesLocation ? latitude : 0, longitude: sharesLocation ? longitude : 0, reason: reason)
+        pendingInput = input
         do {
-            try await apiClient.linkDevice(LinkDevicePayload(
-                groupCode: normalizedGroupCode,
-                deviceID: device.id,
-                displayName: device.name
-            ))
-            syncStatus = "Linked \(device.name)"
+            activeAlert = try await apiClient.startEmergency(input)
+            persistActiveAlert()
+            syncStatus = "Family alert created"
+            return true
         } catch {
-            syncStatus = "Link saved locally; AppSync failed: \(Self.describe(error))"
+            emergencyError = error.localizedDescription
+            syncStatus = "Alert delivery unconfirmed: " + error.localizedDescription
+            // Do not replay a stale SOS automatically later.
+            return false
         }
     }
 
-    func sendMyEmergencyAlert(deviceID: String?, displayName: String, latitude: Double, longitude: Double, reason: String) async {
-        guard hasGroup else { return }
-        let payload = EmergencyAlertPayload(
-            groupCode: normalizedGroupCode,
-            deviceID: deviceID,
-            displayName: displayName,
-            latitude: latitude,
-            longitude: longitude,
-            reason: reason,
-            timestamp: Date()
-        )
-        do {
-            try await apiClient.sendEmergencyAlert(payload)
-            syncStatus = "Emergency alert sent"
-            postLocalNotificationPublic(title: "Emergency Sent", body: "\(displayName): \(reason)")
-        } catch {
-            queueAlert(payload)
-            syncStatus = "Emergency queued; AppSync failed: \(Self.describe(error))"
-        }
+    func beginEmergencySession() {
+        pendingInput = nil
+        emergencyError = nil
     }
-    
-    // NEW: Allow the wearer to explicitly retract their own emergency
+
     func cancelMyOwnEmergency(deviceID: String?, displayName: String) async {
-        guard hasGroup else { return }
-        let payload = CancelEmergencyPayload(
-            groupCode: normalizedGroupCode,
-            targetDeviceID: deviceID ?? "",
-            reason: "Wearer cancelled false alarm",
-            timestamp: Date()
-        )
+        guard let id = pendingInput?.alertID ?? activeAlert?.alertID else { return }
         do {
-            try await apiClient.cancelEmergencyAlert(payload)
-            syncStatus = "Cancelled emergency for \(displayName)"
-            postLocalNotificationPublic(title: "EMS Cancelled", body: "False alarm cancelled successfully.")
+            activeAlert = try await apiClient.cancelEmergency(alertID: id)
+            persistActiveAlert()
+            pendingInput = nil
+            emergencyError = nil
+            syncStatus = "Alert canceled before calls"
         } catch {
-            queueCancelEmergency(payload)
-            syncStatus = "Cancel queued; AppSync failed: \(Self.describe(error))"
+            emergencyError = error.localizedDescription
+            syncStatus = "Cancellation not confirmed: " + error.localizedDescription
         }
     }
 
-    private func uploadTelemetry(_ payload: FamilyTelemetryPayload, uploadKey: String) async {
+    func cancelAlert(_ alert: CloudAlert) async {
         do {
-            try await apiClient.uploadTelemetry(payload)
-            syncStatus = "Uploaded \(payload.displayName)"
-        } catch {
-            queueTelemetry(payload)
-            syncStatus = "Telemetry queued locally; AppSync failed: \(Self.describe(error))"
-        }
-        uploadTasks.remove(uploadKey)
-    }
-
-    private func coordinateForSharing(
-        status: DeviceStatus,
-        fallbackLatitude: Double,
-        fallbackLongitude: Double
-    ) -> (latitude: Double, longitude: Double) {
-        guard isLocationSharingEnabled else { return (0, 0) }
-
-        if status.lifeLoopState.latitude != 0 || status.lifeLoopState.longitude != 0 {
-            return (status.lifeLoopState.latitude, status.lifeLoopState.longitude)
-        }
-        return (fallbackLatitude, fallbackLongitude)
-    }
-
-    private var normalizedGroupCode: String {
-        groupCode.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
-    }
-
-    private func saveLinkedDeviceIDs() {
-        UserDefaults.standard.set(Array(linkedDeviceIDs), forKey: linkedDeviceIDsKey)
-    }
-
-    private func postLocalNotificationPublic(title: String, body: String) {
-        let content = UNMutableNotificationContent()
-        content.title = title
-        content.body = body
-        content.sound = .default
-        let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
-        UNUserNotificationCenter.current().add(request)
-    }
-
-    // MARK: - Offline queue helpers
-
-    private func loadPendingQueues() {
-        let decoder = JSONDecoder()
-        if let data = UserDefaults.standard.data(forKey: pendingTelemetryKey),
-           let items = try? decoder.decode([FamilyTelemetryPayload].self, from: data) {
-            pendingTelemetry = items
-        }
-        if let data = UserDefaults.standard.data(forKey: pendingAlertsKey),
-           let items = try? decoder.decode([EmergencyAlertPayload].self, from: data) {
-            pendingAlerts = items
-        }
-    }
-
-    private func savePendingQueues() {
-        let encoder = JSONEncoder()
-        if let data = try? encoder.encode(pendingTelemetry) {
-            UserDefaults.standard.set(data, forKey: pendingTelemetryKey)
-        }
-        if let data = try? encoder.encode(pendingAlerts) {
-            UserDefaults.standard.set(data, forKey: pendingAlertsKey)
-        }
-    }
-
-    private func queueTelemetry(_ payload: FamilyTelemetryPayload) {
-        pendingTelemetry.append(payload)
-        savePendingQueues()
-    }
-
-    private func queueAlert(_ payload: EmergencyAlertPayload) {
-        pendingAlerts.append(payload)
-        savePendingQueues()
-    }
-
-    private func canSendNow() -> Bool { isNetworkReachable }
-
-    func sendImmediateEmergencyFromApp(deviceID: String?, displayName: String, latitude: Double, longitude: Double, reason: String) {
-        if let last = lastEmergencySentAt, Date().timeIntervalSince(last) < 10 { return }
-        lastEmergencySentAt = Date()
-        Task { [weak self] in
-            await self?.sendMyEmergencyAlert(deviceID: deviceID, displayName: displayName, latitude: latitude, longitude: longitude, reason: reason)
-        }
-        postLocalNotificationPublic(title: "EMS Alert Sent", body: "Immediate alert for \(displayName): \(reason)")
+            let updated = try await apiClient.cancelEmergency(alertID: alert.id)
+            alerts = alerts.map { $0.id == updated.id ? updated : $0 }
+            if activeAlert?.id == updated.id { activeAlert = updated; persistActiveAlert() }
+            syncStatus = "Alert canceled"
+            LoopNotifications.shared.receive([updated])
+        } catch { syncStatus = "Cancellation not confirmed: " + error.localizedDescription }
     }
 
     func cancelEmergency(for device: FamilyDeviceSnapshot) async {
-        guard hasGroup else { return }
-        let payload = CancelEmergencyPayload(
-            groupCode: normalizedGroupCode,
-            targetDeviceID: device.id,
-            reason: "Admin cancel request",
-            timestamp: Date()
-        )
-        do {
-            try await apiClient.cancelEmergencyAlert(payload)
-            syncStatus = "Requested cancel for \(device.displayName)"
-            postLocalNotificationPublic(title: "Requested EMS Cancel", body: "Sent cancel for \(device.ownerName)")
-        } catch {
-            queueCancelEmergency(payload)
-            syncStatus = "Cancel queued; AppSync failed: \(Self.describe(error))"
+        for alert in alerts where alert.deviceID == device.id && alert.status == "PENDING" {
+            await cancelAlert(alert)
         }
     }
 
-    private func queueCancelEmergency(_ payload: CancelEmergencyPayload) {
-        let adapted = EmergencyAlertPayload(
-            groupCode: payload.groupCode,
-            deviceID: payload.targetDeviceID,
-            displayName: "[CANCEL]",
-            latitude: 0,
-            longitude: 0,
-            reason: payload.reason,
-            timestamp: payload.timestamp
-        )
-        pendingAlerts.append(adapted)
-        savePendingQueues()
-    }
-
-    private func isCancelMarker(_ alert: EmergencyAlertPayload) -> Bool {
-        alert.displayName == "[CANCEL]"
-    }
-
-    private func flushPendingCancel(_ alert: EmergencyAlertPayload) async throws {
-        let payload = CancelEmergencyPayload(
-            groupCode: alert.groupCode,
-            targetDeviceID: alert.deviceID ?? "",
-            reason: alert.reason,
-            timestamp: alert.timestamp
-        )
-        try await apiClient.cancelEmergencyAlert(payload)
-    }
-
-    @discardableResult
-    private func flushPendingQueues() async -> (sentTelemetry: Int, sentAlerts: Int) {
-        guard canSendNow() else { return (0, 0) }
-        var sentT = 0
-        var sentA = 0
-
-        // Flush telemetry
-        if !pendingTelemetry.isEmpty {
-            var remaining: [FamilyTelemetryPayload] = []
-            for item in pendingTelemetry {
-                do {
-                    try await apiClient.uploadTelemetry(item)
-                    sentT += 1
-                } catch {
-                    remaining.append(item)
-                }
-            }
-            pendingTelemetry = remaining
-        }
-
-        // Flush alerts
-        if !pendingAlerts.isEmpty {
-            var remaining: [EmergencyAlertPayload] = []
-            for item in pendingAlerts {
-                do {
-                    if isCancelMarker(item) {
-                        try await flushPendingCancel(item)
-                    } else {
-                        try await apiClient.sendEmergencyAlert(item)
-                    }
-                    sentA += 1
-                } catch {
-                    remaining.append(item)
-                }
-            }
-            pendingAlerts = remaining
-        }
-
-        savePendingQueues()
-        return (sentT, sentA)
-    }
-
-    private static func describe(_ error: Error) -> String {
-        if let apiError = error as? APIError {
-            print("🔴 Full APIError: \(apiError)")
-            if let underlying = apiError.underlyingError {
-                print("🔴 Underlying error: \(underlying)")
-            }
-            return apiError.errorDescription
-        } else {
-            print("🔴 Non-APIError: \(error)")
-            return error.localizedDescription
-        }
+    private func persistActiveAlert() {
+        UserDefaults.standard.set(try? JSONEncoder().encode(activeAlert), forKey: "emergency.active." + groupCode)
     }
 }

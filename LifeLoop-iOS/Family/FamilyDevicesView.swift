@@ -1,321 +1,260 @@
 import SwiftUI
 import MapKit
 
-struct FamilyDevicesView: View {
-    @ObservedObject var familyManager: FamilyDeviceManager
-    let localDevices: [KnownDevice]
-    let deviceStatuses: [String: DeviceStatus]
-    let background: Color
-    let surface: Color
-    let primaryText: Color
-    let secondaryText: Color
-    let teal: Color
-    let warning: Color
+struct GroupsView: View {
+    @Environment(UserProfile.self) private var profile
+    @State private var creating = false
+    @State private var joining = false
+    @State private var account = false
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 22) {
+                Text(profile.cloudStatus).font(.callout).foregroundStyle(.secondary)
+                if profile.isSignedIn {
+                    HStack {
+                        Button("Create family", systemImage: "plus") { creating = true }.buttonStyle(.borderedProminent)
+                        Button("Join family", systemImage: "person.badge.plus") { joining = true }.buttonStyle(.bordered)
+                    }
+                } else {
+                    Button("Sign in to your family") { account = true }.buttonStyle(.borderedProminent)
+                }
+                if profile.groups.isEmpty {
+                    ContentUnavailableView("Your family starts here", systemImage: "person.2", description: Text("Create a family or join with an invitation code."))
+                }
+                ForEach(profile.groups) { group in
+                    if let manager = profile.managers[group.id] {
+                        NavigationLink { GroupDetailView(group: group, manager: manager) } label: {
+                            HStack {
+                                Image(systemName: "person.2.fill").foregroundStyle(LoopStyle.green)
+                                VStack(alignment: .leading, spacing: 5) {
+                                    Text(group.name).font(.headline)
+                                    Text(profile.role(in: group.id)?.rawValue.capitalized ?? "Member").font(.caption).foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                            }.loopCard()
+                        }.buttonStyle(.plain)
+                    }
+                }
+            }.padding(24).frame(maxWidth: 720)
+        }.loopPage().navigationTitle("Groups")
+            .task { await profile.refreshFamilies() }
+            .refreshable { await profile.refreshFamilies() }
+            .sheet(isPresented: $creating) { GroupEditor(isCreating: true) }
+            .sheet(isPresented: $joining) { GroupEditor(isCreating: false) }
+            .sheet(isPresented: $account) { AccountSetupView { account = false } }
+    }
+}
+
+struct GroupEditor: View {
+    @Environment(UserProfile.self) private var profile
+    @Environment(\.dismiss) private var dismiss
+    let isCreating: Bool
+    @State private var name = ""
+    @State private var code = ""
+    @State private var error: String?
+    @State private var busy = false
 
     var body: some View {
         NavigationStack {
-            List {
-                groupSection
-                locationSharingSection
-                linkedDevicesSection
-                remoteDevicesSection
-            }
-            .listStyle(.plain)
-            .scrollContentBackground(.hidden)
-            .background(background)
-            .task {
-                await familyManager.refreshFamilyDevices()
-            }
-            .refreshable {
-                await familyManager.refreshFamilyDevices()
-            }
-            .navigationTitle("Family")
-        }
-    }
-
-    private var groupSection: some View {
-        Section {
-            VStack(alignment: .leading, spacing: 10) {
-                Text("Family Group")
-                    .font(.system(size: 20, weight: .semibold))
-                    .foregroundStyle(primaryText)
-
-                HStack(spacing: 8) {
-                    TextField("Group code", text: $familyManager.groupCode)
-                        .textInputAutocapitalization(.characters)
-                        .autocorrectionDisabled()
-                        .font(.system(size: 15, weight: .semibold, design: .monospaced))
-                        .foregroundStyle(primaryText)
-                        .padding(10)
-                        .background(background)
-                        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-
-                    Button("Save") {
-                        familyManager.saveGroupCode()
+            Form {
+                Section {
+                    TextField("Family nickname (only on this phone)", text: $name)
+                    if !isCreating {
+                        TextField("Invitation code", text: $code).textInputAutocapitalization(.characters).autocorrectionDisabled()
                     }
-                    .font(.system(size: 13, weight: .semibold))
-                    .buttonStyle(.borderedProminent)
-                    .tint(teal)
-                }
-
-                Text(familyManager.syncStatus)
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(secondaryText)
-            }
-            .padding(.vertical, 8)
-            .listRowBackground(surface)
-            .listRowSeparator(.hidden)
-        }
-    }
-
-    private var locationSharingSection: some View {
-        Section {
-            Toggle(isOn: $familyManager.isLocationSharingEnabled) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Share Map Location")
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(primaryText)
-
-                    Text("Uses LifeLoop GPS first, then this phone's location")
-                        .font(.system(size: 12, weight: .regular))
-                        .foregroundStyle(secondaryText)
-                }
-            }
-            .tint(teal)
-            .listRowBackground(surface)
-        } header: {
-            Text("Find My Family")
-                .foregroundStyle(secondaryText)
-        }
-    }
-
-    private var linkedDevicesSection: some View {
-        Section {
-            if localDevices.isEmpty {
-                Text("Add a LifeLoop device before sharing with family")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(secondaryText)
-                    .listRowBackground(surface)
-            } else {
-                ForEach(localDevices) { device in
-                    let status = deviceStatuses[device.id]
-                    Toggle(isOn: binding(for: device)) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(status?.name ?? device.name)
-                                .font(.system(size: 15, weight: .semibold))
-                                .foregroundStyle(primaryText)
-
-                            Text(statusLine(for: status))
-                                .font(.system(size: 12, weight: .regular))
-                                .foregroundStyle(secondaryText)
-                        }
+                    Text("You’ll appear as \(profile.name) to this family.")
+                    Text(isCreating ? "You’ll become the creator and receive an invitation code to share." : "Your invitation code is verified before you join.")
+                        .font(.footnote).foregroundStyle(.secondary)
+                    if let error { Text(error).foregroundStyle(.red) }
+                    if busy { ProgressView() }
+                }.disabled(busy)
+            }.loopPage().navigationTitle(isCreating ? "Create family" : "Join family")
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.disabled(busy) }
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button(isCreating ? "Create" : "Join") {
+                            busy = true
+                            Task {
+                                defer { busy = false }
+                                do {
+                                    if isCreating { try await profile.createGroup(nickname: name) }
+                                    else { try await profile.joinGroup(nickname: name, code: code) }
+                                    dismiss()
+                                } catch { self.error = error.localizedDescription }
+                            }
+                        }.disabled(busy || profile.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || (!isCreating && code.isEmpty))
                     }
-                    .tint(teal)
-                    .listRowBackground(surface)
                 }
-            }
-        } header: {
-            Text("Share My Devices")
-                .foregroundStyle(secondaryText)
-        }
-    }
-
-    private var remoteDevicesSection: some View {
-        Section {
-            if familyManager.familyDevices.isEmpty {
-                Text(familyManager.hasGroup ? "No family devices found yet" : "Save a group code to view family devices")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(secondaryText)
-                    .listRowBackground(surface)
-            } else {
-                ForEach(familyManager.familyDevices) { device in
-                    NavigationLink(destination: FamilyMemberDetailView(device: device, address: familyManager.addressCache[device.id] ?? locationText(for: device), primaryText: primaryText, secondaryText: secondaryText, teal: teal, surface: surface, background: background)
-                        .environmentObject(familyManager)) {
-                        familyDeviceRow(device)
-                    }
-                    .onAppear { familyManager.resolveAddress(for: device) }
-                }
-            }
-        } header: {
-            HStack {
-                Text("Family Devices")
-                    .foregroundStyle(secondaryText)
-                Spacer()
-                if familyManager.isSyncing {
-                    ProgressView()
-                        .controlSize(.mini)
-                }
-            }
-        }
-    }
-
-    private func familyDeviceRow(_ device: FamilyDeviceSnapshot) -> some View {
-        HStack(spacing: 12) {
-            Circle()
-                .fill(device.isOnline ? teal : warning)
-                .frame(width: 10, height: 10)
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text(device.displayName)
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(primaryText)
-                
-                Text(stateDescription(for: device.state))
-                    .font(.system(size: 12, weight: .bold))
-                    .foregroundStyle(device.state == 4 ? Color.red : primaryText)
-
-                Text("\(device.ownerName) • \(lastUpdatedText(device.lastUpdated))")
-                    .font(.system(size: 12, weight: .regular))
-                    .foregroundStyle(secondaryText)
-
-                Text(locationText(for: device))
-                    .font(.system(size: 11, weight: .regular, design: .monospaced))
-                    .foregroundStyle(device.isLocationShared ? teal : secondaryText)
-            }
-
-            Spacer()
-
-            Text(device.bpm > 0 ? "\(Int(device.bpm.rounded())) bpm" : "--")
-                .font(.system(size: 13, weight: .semibold, design: .monospaced))
-                .foregroundStyle(device.isOnline ? teal : secondaryText)
-        }
-        .padding(.vertical, 6)
-    }
-
-    private func binding(for device: KnownDevice) -> Binding<Bool> {
-        Binding(
-            get: { familyManager.linkedDeviceIDs.contains(device.id) },
-            set: { _ in familyManager.toggleLink(for: device) }
-        )
-    }
-
-    private func statusLine(for status: DeviceStatus?) -> String {
-        guard let status else { return "Offline" }
-        if status.isConnecting { return "Connecting" }
-        if status.isConnected { return "Connected" }
-        return "Offline"
-    }
-
-    private func lastUpdatedText(_ date: Date?) -> String {
-        guard let date else { return "Never updated" }
-        return DateFormatter.localizedString(from: date, dateStyle: .none, timeStyle: .short)
-    }
-
-    private func locationText(for device: FamilyDeviceSnapshot) -> String {
-        if let cached = familyManager.addressCache[device.id], !cached.isEmpty {
-            return cached
-        }
-        guard device.isLocationShared,
-              device.latitude != 0 || device.longitude != 0 else {
-            return "Location hidden"
-        }
-        return String(format: "%.5f, %.5f", device.latitude, device.longitude)
-    }
-    
-    private func stateDescription(for state: Int) -> String {
-        switch state {
-        case 4:
-            return "EMERGENCY (4)"
-        case 2:
-            return "Fall Detected (2)"
-        case 1:
-            return "Normal (1)"
-        case 0:
-            return "Idle (0)"
-        default:
-            return "State: \(state)"
-        }
+        }.interactiveDismissDisabled(busy)
     }
 }
 
-struct FamilyMemberDetailView: View {
-    let device: FamilyDeviceSnapshot
-    let address: String
-    let primaryText: Color
-    let secondaryText: Color
-    let teal: Color
-    let surface: Color
-    let background: Color
-
-    @EnvironmentObject private var familyManager: FamilyDeviceManager
+struct GroupDetailView: View {
+    @Environment(UserProfile.self) private var profile
+    @Environment(\.dismiss) private var dismiss
+    let group: LoopGroup
+    @ObservedObject var manager: FamilyDeviceManager
+    @State private var leave = false
+    @State private var error: String?
 
     var body: some View {
-        List {
-            Section {
-                HStack {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text(device.displayName)
-                            .font(.system(size: 20, weight: .semibold))
-                            .foregroundStyle(primaryText)
-                        Text("Owner: \(device.ownerName)")
-                            .font(.system(size: 13))
-                            .foregroundStyle(secondaryText)
-                        Text("Last updated: \(lastUpdatedText(device.lastUpdated))")
-                            .font(.system(size: 12))
-                            .foregroundStyle(secondaryText)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 22) {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Invite your people").font(.headline)
+                    Text(group.id).font(.title2.monospaced()).textSelection(.enabled)
+                    ShareLink(item: group.id) { Label("Share invitation code", systemImage: "square.and.arrow.up") }
+                }.loopCard()
+                NavigationLink { FamilyMembersView(group: group) } label: { Label("Members & roles", systemImage: "person.2").loopCard() }
+                NavigationLink { FamilyContactsView(group: group) } label: { Label("Emergency call contacts", systemImage: "phone").loopCard() }
+                NavigationLink { GroupSharingView(manager: manager) } label: { Label("Shared devices", systemImage: "slider.horizontal.3").loopCard() }
+                FamilyAlertsView(manager: manager)
+                MemberListSection(manager: manager, title: "Shared devices", search: "")
+                Text(manager.syncStatus).font(.footnote).foregroundStyle(.secondary)
+                if profile.role(in: group.id) != .creator {
+                    Button("Leave family", role: .destructive) { leave = true }
+                }
+                if let error { Text(error).foregroundStyle(.red) }
+            }.padding(24).frame(maxWidth: 720)
+        }.loopPage().navigationTitle(group.name)
+            .task { await manager.refreshFamilyDevices() }
+            .refreshable { await manager.refreshFamilyDevices() }
+            .confirmationDialog("Leave this family? Your shared contacts and devices will be removed from this family.", isPresented: $leave, titleVisibility: .visible) {
+                Button("Leave family", role: .destructive) {
+                    Task {
+                        do { try await profile.leaveGroup(group); dismiss() }
+                        catch { self.error = error.localizedDescription }
                     }
-                    Spacer()
-                    VStack(alignment: .trailing) {
-                        Text(device.bpm > 0 ? "\(Int(device.bpm.rounded())) bpm" : "--")
-                            .font(.system(size: 16, weight: .bold, design: .monospaced))
-                            .foregroundStyle(teal)
-                        Text(statusText)
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(device.isOnline ? teal : secondaryText)
-                    }
                 }
             }
-            .listRowBackground(surface)
-
-            Section("Location") {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(address)
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(primaryText)
-                    Text(String(format: "%.5f, %.5f", device.latitude, device.longitude))
-                        .font(.system(size: 12, weight: .regular, design: .monospaced))
-                        .foregroundStyle(secondaryText)
-                }
-            }
-            .listRowBackground(surface)
-
-            if device.isLocationShared && (device.latitude != 0 || device.longitude != 0) {
-                Section("Map") {
-                    Map(initialPosition: .region(MKCoordinateRegion(
-                        center: CLLocationCoordinate2D(latitude: device.latitude, longitude: device.longitude),
-                        span: MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01)
-                    ))) {
-                        Marker(device.displayName, systemImage: device.isOnline ? "heart.fill" : "heart.slash", coordinate: CLLocationCoordinate2D(latitude: device.latitude, longitude: device.longitude))
-                            .tint(device.isOnline ? .red : .gray)
-                    }
-                    .frame(height: 220)
-                }
-                .listRowBackground(surface)
-            }
-
-            Section("Admin Tools") {
-                Button(role: .destructive) {
-                    Task { await familyManager.cancelEmergency(for: device) }
-                } label: {
-                    Label("Request Cancel EMS", systemImage: "xmark.octagon")
-                }
-                .disabled(!device.isOnline)
-            }
-            .listRowBackground(surface)
-        }
-        .navigationTitle(device.ownerName)
-        .navigationBarTitleDisplayMode(.inline)
-        .scrollContentBackground(.hidden)
-        .background(background)
-    }
-
-    private var statusText: String {
-        device.isOnline ? "Online" : "Offline"
-    }
-
-    private func lastUpdatedText(_ date: Date?) -> String {
-        guard let date else { return "Never" }
-        return DateFormatter.localizedString(from: date, dateStyle: .none, timeStyle: .short)
     }
 }
 
+struct GroupSharingView: View {
+    @EnvironmentObject private var bleMonitor: BLEMonitor
+    @ObservedObject var manager: FamilyDeviceManager
+
+    var body: some View {
+        Form {
+            Section {
+                ForEach(bleMonitor.knownDevices) { device in
+                    Toggle(device.name, isOn: Binding(get: { manager.linkedDeviceIDs.contains(device.id) }, set: { desired in
+                        if desired != manager.linkedDeviceIDs.contains(device.id) { manager.toggleLink(for: device) }
+                    }))
+                }
+                if bleMonitor.knownDevices.isEmpty { Text("Connect a device in the Devices tab first.") }
+            } header: { Text("Devices shared with this group") } footer: {
+                Text("Profile settings control location and device information for all groups. Turning sharing off stops future updates; it does not delete records already on the server.")
+            }
+        }.loopPage().navigationTitle("Device sharing")
+    }
+}
+
+struct MemberListSection: View {
+    @ObservedObject var manager: FamilyDeviceManager
+    let title: String
+    let search: String
+
+    private var members: [FamilyDeviceSnapshot] {
+        manager.familyDevices.filter { search.isEmpty || $0.displayName.localizedCaseInsensitiveContains(search) || $0.ownerName.localizedCaseInsensitiveContains(search) }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text(title).font(.title3.bold())
+            if members.isEmpty {
+                Text(manager.isSyncing ? "Updating members…" : "No shared devices to show.")
+                    .foregroundStyle(.secondary).loopCard()
+            }
+            ForEach(members) { member in
+                NavigationLink {
+                    MemberInfoView(memberID: member.id, manager: manager)
+                } label: {
+                    HStack(spacing: 16) {
+                        ProfileAvatar(name: member.ownerName.isEmpty ? member.displayName : member.ownerName, size: 64)
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text(member.ownerName.isEmpty ? member.displayName : member.ownerName).font(.headline)
+                            Text(member.displayName).font(.caption).foregroundStyle(.secondary)
+                            Text(member.isOnline ? "\(Int(member.bpm)) bpm · \(member.state == 0 ? "Normal" : "Needs attention")" : "Offline")
+                                .font(.subheadline).foregroundStyle(member.isOnline ? LoopStyle.green : .secondary)
+                        }
+                        Spacer()
+                        Image(systemName: "chevron.right").foregroundStyle(.secondary)
+                    }.loopCard()
+                }.buttonStyle(.plain)
+            }
+        }
+    }
+}
+
+struct GroupMapSection: View {
+    @ObservedObject var manager: FamilyDeviceManager
+    let title: String
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(title).font(.headline)
+            Map {
+                ForEach(manager.familyDevices) { member in
+                    if member.isLocationShared && (member.latitude != 0 || member.longitude != 0) {
+                        Marker(member.displayName, coordinate: CLLocationCoordinate2D(latitude: member.latitude, longitude: member.longitude))
+                    }
+                }
+            }.frame(height: 260).clipShape(RoundedRectangle(cornerRadius: 24))
+        }
+    }
+}
+
+struct MemberInfoView: View {
+    let memberID: String
+    @ObservedObject var manager: FamilyDeviceManager
+    @State private var cancel = false
+
+    private var member: FamilyDeviceSnapshot? { manager.familyDevices.first { $0.id == memberID } }
+
+    var body: some View {
+        ScrollView {
+            if let member {
+                VStack(alignment: .leading, spacing: 24) {
+                    ProfileAvatar(name: member.ownerName, size: 100)
+                        .frame(maxWidth: .infinity).padding(30)
+                        .background(LoopStyle.mint, in: RoundedRectangle(cornerRadius: 24))
+                    Text(member.ownerName.isEmpty ? member.displayName : member.ownerName).font(.largeTitle.bold())
+                    Text(member.displayName).foregroundStyle(.secondary)
+                    Label(member.isLocationShared ? manager.addressCache[member.id] ?? "Waiting for address" : "Location not shared", systemImage: "mappin.and.ellipse")
+                        .foregroundStyle(.secondary)
+                    HStack {
+                        metric(member.isOnline && member.bpm > 0 ? "\(Int(member.bpm)) bpm" : "—", title: "Heart rate")
+                        metric(member.isOnline ? "Online" : "Offline", title: "Connection")
+                    }
+                    MemberMap(name: member.displayName, latitude: member.latitude, longitude: member.longitude, shared: member.isLocationShared)
+                    Text("Latest update").font(.title3.bold())
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(member.state == 4 ? "EMERGENCY" : member.state == 2 ? "FALL DETECTED" : member.state == 0 ? "Normal" : "Device state \(member.state)").font(.headline)
+                        if let updated = member.lastUpdated {
+                            Text(updated, format: .dateTime.month().day().year().hour().minute()).foregroundStyle(.secondary)
+                        } else { Text("No update received").foregroundStyle(.secondary) }
+                    }.loopCard()
+                    FamilyAlertsView(manager: manager, deviceID: member.id)
+                    Text(manager.syncStatus).font(.footnote).foregroundStyle(.secondary)
+                }.padding(24).frame(maxWidth: 720)
+            } else {
+                ContentUnavailableView("Member unavailable", systemImage: "person.crop.circle.badge.questionmark")
+            }
+        }.loopPage().navigationTitle("Member info").navigationBarTitleDisplayMode(.inline)
+            .refreshable { await manager.refreshFamilyDevices() }
+            .confirmationDialog("Request cancellation for this member?", isPresented: $cancel, titleVisibility: .visible) {
+                Button("Request cancellation", role: .destructive) {
+                    if let member { Task { await manager.cancelEmergency(for: member) } }
+                }
+            }
+    }
+
+    private func metric(_ value: String, title: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(value).font(.title3.bold())
+            Text(title).font(.subheadline).foregroundStyle(.secondary)
+        }.loopCard()
+    }
+}

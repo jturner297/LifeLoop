@@ -1,109 +1,161 @@
-//
-//  EMSCountdown.swift
-//  LifeLoop
-//
-//  Created by Jes206 on 9/15/26.
-//
-
 import SwiftUI
 
 struct EMSCountdown: View {
-    // Watch timer for any changes
     @ObservedObject var timerManager: EMSTimerManager
-    
-    // Inject the BLEMonitor pipeline to send commands back to the watch
-    @EnvironmentObject var bleMonitor: BLEMonitor
-    
-    @State private var isFlashing = false
-    
-    let mainWarningFont = "Helvetica-Neue-Condensed-Black"
-    let secondaryFont = "Futura-CondensedMedium"
-    
+    var onCancel: (() -> Void)?
+    @EnvironmentObject private var bleMonitor: BLEMonitor
+
     var body: some View {
-        ZStack {
-            // Background layer
-            // Dark background to make the red pop out more
-            Color(red: 0.45, green: 0.05, blue: 0.05).ignoresSafeArea()
-            
-            // The Geometric Pointy-Topped Hexagon Grid
-            HexagonGrid()
-                .ignoresSafeArea()
-            
-            // Strobing red overlay
-            Color.red
-                .opacity(isFlashing ? 0.65 : 0.0) // Pulse between visible and hidden
-                .ignoresSafeArea()
-                .animation(.easeInOut(duration: 0.35).repeatForever(autoreverses: true), value: isFlashing)
-            
-            VStack(spacing: 0) {
-                // Top Marquee Tape
-                MarqueeText(text: "EMERGENCY", fontName: mainWarningFont)
-                
-                Spacer()
-                
-                VStack(spacing: 10) {
-                    // Warning Header
-                    Text(timerManager.triggerReason)
-                        .font(.custom(mainWarningFont, size: 45)) // Scaled down to prevent crowding
-                        .foregroundStyle(Color.white)
-                        .shadow(color: .black, radius: 2, x: 2, y: 2)
-                        .multilineTextAlignment(.center)
-                
-                    Text("EMS will be dispatched in:")
-                        .font(.custom(secondaryFont, size: 22))
-                        .foregroundStyle(Color.white) // Matched to the red in the target image
-                    
-                    // Live countdown that will update every second due to @ObservedObject
-                    Text("\(timerManager.timeRemaining)")
-                        .font(.custom(mainWarningFont, size: 120)) // Scaled down for breathing room
-                        .foregroundStyle(Color.white)
-                        .shadow(color: .black, radius: 4, x: 3, y: 3)
-                        .padding(.vertical, -10)
-                }
-                
-                Spacer()
-                
-                // Warning Tape Block
-                VStack(spacing: 0) {
-                    Rectangle()
-                        .fill(Color.red)
-                        .frame(height: 5) // Top warning border
-                    
-                    // Cancellation button
-                    Button(action: {
-                        timerManager.cancelCountdown()
-                        bleMonitor.sendCancelCommand() // Beams the reset command to the hardware
-                    }) {
-                        Text("CANCEL ALARM")
-                            .font(.custom(mainWarningFont, size: 30))
-                            .foregroundStyle(Color.white)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 65)
-                            .background(Color.black)
-                    }
-                    
-                    Rectangle()
-                        .fill(Color.red)
-                        .frame(height: 5) // Bottom warning border
-                }
-                .padding(.bottom, 40) // Adds spacing before the bottom marquee
-                
-                // Bottom Marquee Tape
-                MarqueeText(text: "EMERGENCY", fontName: mainWarningFont)
-            }
+        EmergencyCountdownScreen(
+            secondsRemaining: timerManager.timeRemaining,
+            reason: timerManager.triggerReason
+        ) {
+            if let onCancel { onCancel() }
+            else { timerManager.cancelCountdown(); bleMonitor.sendCancelCommand() }
         }
-        .onAppear {
-            // Start flashing loop when screen appears
-            isFlashing = true
-        }
+        .interactiveDismissDisabled()
     }
 }
 
-// Preview provider allows us to see the UI in Xcode without running it on an iphone
-struct EMSCountdown_Previews: PreviewProvider {
-    static var previews: some View {
-        EMSCountdown(timerManager: EMSTimerManager())
-            // Safely inject the monitor so the preview doesn't instantly crash
-            .environmentObject(BLEMonitor())
+/// Presentation is separate from the alarm so previews never trigger audio, Bluetooth, or AWS.
+struct EmergencyCountdownScreen: View {
+    let secondsRemaining: Int
+    let reason: String
+    let onCancel: () -> Void
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @ScaledMetric(relativeTo: .largeTitle) private var countdownSize = 100
+    @State private var isPulsing = false
+
+    private let emergencyRed = Color(red: 0.73, green: 0.08, blue: 0.13)
+    private let deepRed = Color(red: 0.35, green: 0.03, blue: 0.07)
+
+    private var progress: CGFloat {
+        CGFloat(min(max(secondsRemaining, 0), 30)) / 30
     }
+
+    private var readableReason: String {
+        reason.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
+    }
+
+    var body: some View {
+        GeometryReader { geometry in
+            ScrollView {
+                VStack(spacing: 26) {
+                    HStack(spacing: 10) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                        Text("EMERGENCY ALERT").tracking(2)
+                    }
+                    .font(.subheadline.bold())
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 13)
+                    .background(.white.opacity(0.14), in: Capsule())
+
+                    VStack(spacing: 12) {
+                        Text("Do you need help?")
+                            .font(.largeTitle.bold())
+                        Text(readableReason)
+                            .font(.headline)
+                            .foregroundStyle(.white.opacity(0.9))
+                    }
+                    .multilineTextAlignment(.center)
+
+                    countdown
+                        .frame(maxWidth: 270)
+                        .frame(maxWidth: .infinity)
+
+                    VStack(spacing: 10) {
+                        Text("Emergency call countdown")
+                            .font(.title2.bold())
+                        Text("LifeLoop is contacting your family service. Saved contacts are called after the service’s grace period. Cancel now if you’re safe.")
+                            .font(.body)
+                            .foregroundStyle(.white.opacity(0.9))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 420)
+                }
+                .padding(.horizontal, 28)
+                .padding(.vertical, 28)
+                .frame(maxWidth: 650)
+                .frame(maxWidth: .infinity)
+                .frame(minHeight: geometry.size.height)
+            }
+        }
+        .foregroundStyle(.white)
+        .background {
+            LinearGradient(colors: [emergencyRed, deepRed], startPoint: .topLeading, endPoint: .bottomTrailing)
+                .ignoresSafeArea()
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            VStack(spacing: 12) {
+                Button(action: onCancel) {
+                    Label("I’m OK — Cancel alert", systemImage: "xmark.circle.fill")
+                        .font(.headline)
+                        .multilineTextAlignment(.center)
+                        .foregroundStyle(deepRed)
+                        .padding(.vertical, 20)
+                        .frame(maxWidth: .infinity)
+                        .background(.white, in: RoundedRectangle(cornerRadius: 22))
+                }
+                .buttonStyle(.plain)
+                .accessibilityHint("Stops the alarm and requests cancellation before contact calls begin.")
+                Text("Tap to stop the alarm")
+                    .font(.footnote)
+                    .foregroundStyle(.white.opacity(0.85))
+            }
+            .padding(.horizontal, 24)
+            .padding(.top, 18)
+            .padding(.bottom, 16)
+            .frame(maxWidth: 650)
+            .frame(maxWidth: .infinity)
+            .background(deepRed)
+        }
+        .preferredColorScheme(.dark)
+        .onAppear { isPulsing = !reduceMotion }
+        .onChange(of: reduceMotion) { _, reduced in isPulsing = !reduced }
+    }
+
+    private var countdown: some View {
+        ZStack {
+            Circle().fill(.white.opacity(0.08))
+            Circle()
+                .stroke(.white.opacity(0.18), lineWidth: 9)
+            Circle()
+                .trim(from: 0, to: progress)
+                .stroke(.white, style: StrokeStyle(lineWidth: 9, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+                .animation(reduceMotion ? nil : .linear(duration: 0.35), value: secondsRemaining)
+
+            VStack(spacing: 0) {
+                Image(systemName: "wave.3.right")
+                    .font(.title2.bold())
+                    .opacity(isPulsing ? 1 : 0.55)
+                    .animation(reduceMotion ? nil : .easeInOut(duration: 1.2).repeatForever(autoreverses: true), value: isPulsing)
+                Text("\(max(secondsRemaining, 0))")
+                    .font(.system(size: countdownSize, weight: .bold, design: .rounded))
+                    .monospacedDigit()
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.5)
+                Text("SECONDS")
+                    .font(.caption.bold())
+                    .tracking(3)
+            }
+            .padding(30)
+        }
+        .aspectRatio(1, contentMode: .fit)
+        .padding(6)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Time until family alert")
+        .accessibilityValue("\(max(secondsRemaining, 0)) seconds")
+    }
+}
+
+#Preview("Emergency countdown") {
+    EmergencyCountdownScreen(secondsRemaining: 18, reason: "SEVERE FALL DETECTED", onCancel: {})
+}
+
+#Preview("Emergency · Large text") {
+    EmergencyCountdownScreen(secondsRemaining: 8, reason: "MANUAL SOS", onCancel: {})
+        .environment(\.dynamicTypeSize, .accessibility3)
 }

@@ -1,5 +1,6 @@
 import Foundation
 import Amplify
+import AWSPluginsCore
 
 struct FamilyDeviceSnapshot: Identifiable, Codable, Equatable {
     let id: String
@@ -31,255 +32,225 @@ struct LinkDevicePayload: Codable {
     let groupCode: String
     let deviceID: String
     let displayName: String
-    var ownerName: String = "Me"
 }
 
-struct EmergencyAlertPayload: Codable {
+
+enum FamilyRole: String, Codable {
+    case creator = "CREATOR", admin = "ADMIN", member = "MEMBER"
+    var canManage: Bool { self != .member }
+}
+
+struct JoinedFamily: Decodable {
+    let groupCode: String
+}
+
+struct CloudFamily: Decodable {
+    let groupCode: String
+    let createdAt: String
+}
+
+struct CloudMember: Identifiable, Codable {
+    var id: String { userID }
+    let groupCode: String
+    let userID: String
+    let displayName: String
+    let role: FamilyRole
+    let joinedAt: String
+}
+
+struct BlockedMember: Identifiable, Decodable {
+    var id: String { userID }
+    let groupCode: String
+    let userID: String
+    let displayName: String
+    let bannedAt: String
+}
+
+struct FamilyContact: Identifiable, Decodable {
+    var id: String { contactID }
+    let groupCode: String
+    let contactID: String
+    let ownerID: String
+    let name: String
+    let phoneNumber: String
+}
+
+struct CloudAlert: Identifiable, Codable, Equatable {
+    var id: String { alertID }
+    let alertID: String
     let groupCode: String
     let deviceID: String?
     let displayName: String
     let latitude: Double
     let longitude: Double
     let reason: String
-    let timestamp: Date
+    let status: String
+    let callAt: String
+    let createdAt: String
+    let canceledBy: String?
+    let canceledByName: String?
+    let canceledAt: String?
+    var callDate: Date? { FamilyAPIClient.parseDate(callAt) }
+    var createdDate: Date? { FamilyAPIClient.parseDate(createdAt) }
 }
 
-struct CancelEmergencyPayload: Codable {
+struct StartEmergencyInput: Codable {
+    let alertID: String
     let groupCode: String
-    let targetDeviceID: String
+    let deviceID: String?
+    let displayName: String
+    let latitude: Double
+    let longitude: Double
     let reason: String
-    let timestamp: Date
+}
+
+private struct MutationResult: Decodable {
+    let success: Bool
+    let message: String?
+}
+
+private struct FamilyRequestError: LocalizedError {
+    let operation: String
+    let message: String
+
+    var errorDescription: String? { "\(operation): \(message)" }
 }
 
 final class FamilyAPIClient {
     static let shared = FamilyAPIClient()
+    static let alertFields = "alertID groupCode deviceID displayName latitude longitude reason status callAt createdAt canceledBy canceledByName canceledAt"
+    private let memberFields = "groupCode userID displayName role joinedAt"
+    private let contactFields = "groupCode contactID ownerID name phoneNumber"
 
-    private let isoFormatter: ISO8601DateFormatter
-    private let isoFormatterFractional: ISO8601DateFormatter
+    private init() {}
 
-    private init() {
-        isoFormatter = ISO8601DateFormatter()
-        isoFormatterFractional = ISO8601DateFormatter()
-        isoFormatterFractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    // Variables preserve quotes, newlines, and Unicode without interpolating user input into GraphQL.
+    private func execute<T: Decodable>(_ field: String, declaration: String = "", arguments: String = "", variables: [String: Any] = [:], fields: String, mutation: Bool = false) async throws -> T {
+        let document = "\(mutation ? "mutation" : "query") Operation\(declaration) { \(field)\(arguments) { \(fields) } }"
+        let request = GraphQLRequest<T>(document: document, variables: variables, responseType: T.self, decodePath: field, authMode: AWSAuthorizationType.amazonCognitoUserPools)
+        do {
+            let result = mutation ? try await Amplify.API.mutate(request: request) : try await Amplify.API.query(request: request)
+            switch result {
+            case .success(let value):
+                return value
+            case .failure(let error):
+                let message: String
+                switch error {
+                case .error(let errors), .partial(_, let errors):
+                    message = errors.map(\.message).joined(separator: "\n")
+                case .transformationError(_, let decodingError):
+                    // Do not expose the raw response, which can contain family information.
+                    message = "AWS returned data the app could not read. " + decodingError.errorDescription
+                case .unknown(let description, _, _):
+                    message = description
+                }
+                throw FamilyRequestError(operation: field, message: message)
+            }
+        } catch let error as FamilyRequestError {
+            throw error
+        } catch {
+            let message = (error as? AmplifyError)?.errorDescription ?? error.localizedDescription
+            throw FamilyRequestError(operation: field, message: message)
+        }
     }
 
-    // MARK: - Mutations
+    private func input<T: Encodable>(_ value: T) throws -> [String: Any] {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let data = try encoder.encode(value)
+        guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw CocoaError(.coderInvalidValue)
+        }
+        return object
+    }
+
+    func myFamilies() async throws -> [CloudMember] {
+        try await execute("myFamilies", fields: memberFields)
+    }
+
+    func createFamily(displayName: String) async throws -> CloudFamily {
+        try await execute("createFamily", declaration: "($name: String!)", arguments: "(displayName: $name)", variables: ["name": displayName], fields: "groupCode createdAt", mutation: true)
+    }
+
+    func joinFamily(code: String, displayName: String) async throws -> JoinedFamily {
+        try await execute("joinFamily", declaration: "($code: String!, $name: String!)", arguments: "(groupCode: $code, displayName: $name)", variables: ["code": code, "name": displayName], fields: "groupCode", mutation: true)
+    }
+
+    func members(code: String) async throws -> [CloudMember] {
+        try await execute("familyMembers", declaration: "($code: String!)", arguments: "(groupCode: $code)", variables: ["code": code], fields: memberFields)
+    }
+
+    func blockedMembers(code: String) async throws -> [BlockedMember] {
+        try await execute("blockedMembers", declaration: "($code: String!)", arguments: "(groupCode: $code)", variables: ["code": code], fields: "groupCode userID displayName bannedAt")
+    }
+
+    func membershipAction(_ field: String, code: String, userID: String? = nil) async throws {
+        var variables: [String: Any] = ["code": code]
+        if let userID { variables["user"] = userID }
+        let result: MutationResult = try await execute(field, declaration: userID == nil ? "($code: String!)" : "($code: String!, $user: String!)", arguments: userID == nil ? "(groupCode: $code)" : "(groupCode: $code, userID: $user)", variables: variables, fields: "success message", mutation: true)
+        if !result.success { throw NSError(domain: "LifeLoop", code: 1, userInfo: [NSLocalizedDescriptionKey: result.message ?? "The change could not be saved."]) }
+    }
+
+    func setRole(code: String, userID: String, role: FamilyRole) async throws -> CloudMember {
+        try await execute("setMemberRole", declaration: "($code: String!, $user: String!, $role: Role!)", arguments: "(groupCode: $code, userID: $user, role: $role)", variables: ["code": code, "user": userID, "role": role.rawValue], fields: memberFields, mutation: true)
+    }
+
+    func contacts(code: String) async throws -> [FamilyContact] {
+        try await execute("familyContacts", declaration: "($code: String!)", arguments: "(groupCode: $code)", variables: ["code": code], fields: contactFields)
+    }
+
+    func saveContact(code: String, contactID: String?, name: String, phone: String) async throws -> FamilyContact {
+        var variables: [String: Any] = ["code": code, "name": name, "phone": phone]
+        if let contactID { variables["id"] = contactID }
+        return try await execute(contactID == nil ? "addContact" : "updateContact",
+            declaration: contactID == nil ? "($code: String!, $name: String!, $phone: String!)" : "($code: String!, $id: ID!, $name: String!, $phone: String!)",
+            arguments: contactID == nil ? "(groupCode: $code, name: $name, phoneNumber: $phone)" : "(groupCode: $code, contactID: $id, name: $name, phoneNumber: $phone)",
+            variables: variables, fields: contactFields, mutation: true)
+    }
+
+    func deleteContact(code: String, contactID: String) async throws {
+        let result: MutationResult = try await execute("deleteContact", declaration: "($code: String!, $id: ID!)", arguments: "(groupCode: $code, contactID: $id)", variables: ["code": code, "id": contactID], fields: "success message", mutation: true)
+        if !result.success { throw CocoaError(.validationMissingMandatoryProperty) }
+    }
 
     func linkDevice(_ payload: LinkDevicePayload) async throws {
-        let input = """
-        {
-          groupCode: \(gqlString(payload.groupCode)),
-          deviceID: \(gqlString(payload.deviceID)),
-          displayName: \(gqlString(payload.displayName)),
-          ownerName: \(gqlString(payload.ownerName))
-        }
-        """
-        let document = """
-        mutation LinkDevice {
-          linkDevice(input: \(input)) {
-            id: deviceID
-          }
-        }
-        """
-        let request = GraphQLRequest<LinkDeviceMutationWire>(
-            document: document,
-            responseType: LinkDeviceMutationWire.self
-        )
-        _ = try await send(mutation: request)
+        let _: DeviceID = try await execute("linkDevice", declaration: "($input: LinkDeviceInput!)", arguments: "(input: $input)", variables: ["input": try input(payload)], fields: "deviceID", mutation: true)
     }
 
     func uploadTelemetry(_ payload: FamilyTelemetryPayload) async throws {
-        let input = """
-        {
-          groupCode: \(gqlString(payload.groupCode)),
-          deviceID: \(gqlString(payload.deviceID)),
-          displayName: \(gqlString(payload.displayName)),
-          bpm: \(payload.bpm),
-          state: \(payload.state),
-          latitude: \(payload.latitude),
-          longitude: \(payload.longitude),
-          isLocationShared: \(payload.isLocationShared),
-          isOnline: \(payload.isOnline),
-          lastUpdated: \(gqlDate(payload.lastUpdated))
-        }
-        """
-        let document = """
-        mutation UploadFamilyTelemetry {
-          uploadFamilyTelemetry(input: \(input)) {
-            id: deviceID
-          }
-        }
-        """
-        let request = GraphQLRequest<UploadTelemetryMutationWire>(
-            document: document,
-            responseType: UploadTelemetryMutationWire.self
-        )
-        _ = try await send(mutation: request)
+        let _: DeviceID = try await execute("uploadFamilyTelemetry", declaration: "($input: FamilyTelemetryInput!)", arguments: "(input: $input)", variables: ["input": try input(payload)], fields: "deviceID", mutation: true)
     }
 
-    func sendEmergencyAlert(_ payload: EmergencyAlertPayload) async throws {
-        let input = """
-        {
-          groupCode: \(gqlString(payload.groupCode)),
-          deviceID: \(gqlOptionalString(payload.deviceID)),
-          displayName: \(gqlString(payload.displayName)),
-          latitude: \(payload.latitude),
-          longitude: \(payload.longitude),
-          reason: \(gqlString(payload.reason)),
-          timestamp: \(gqlString(isoFormatter.string(from: payload.timestamp)))
-        }
-        """
-        let document = """
-        mutation SendEmergencyAlert {
-          sendEmergencyAlert(input: \(input)) {
-            id
-          }
-        }
-        """
-        let request = GraphQLRequest<SendEmergencyAlertMutationWire>(
-            document: document,
-            responseType: SendEmergencyAlertMutationWire.self
-        )
-        _ = try await send(mutation: request)
+    func startEmergency(_ payload: StartEmergencyInput) async throws -> CloudAlert {
+        try await execute("startEmergency", declaration: "($input: StartEmergencyInput!)", arguments: "(input: $input)", variables: ["input": try input(payload)], fields: Self.alertFields, mutation: true)
     }
 
-    func cancelEmergencyAlert(_ payload: CancelEmergencyPayload) async throws {
-        let input = """
-        {
-          groupCode: \(gqlString(payload.groupCode)),
-          targetDeviceID: \(gqlString(payload.targetDeviceID)),
-          reason: \(gqlString(payload.reason)),
-          timestamp: \(gqlString(isoFormatter.string(from: payload.timestamp)))
-        }
-        """
-        let document = """
-        mutation CancelEmergencyAlert {
-          cancelEmergencyAlert(input: \(input)) {
-            id
-          }
-        }
-        """
-        let request = GraphQLRequest<CancelEmergencyMutationWire>(
-            document: document,
-            responseType: CancelEmergencyMutationWire.self
-        )
-        _ = try await send(mutation: request)
+    func cancelEmergency(alertID: String) async throws -> CloudAlert {
+        try await execute("cancelEmergency", declaration: "($id: ID!)", arguments: "(alertID: $id)", variables: ["id": alertID], fields: Self.alertFields, mutation: true)
     }
 
-    // MARK: - Query
+    func alerts(code: String) async throws -> [CloudAlert] {
+        try await execute("alertsForGroup", declaration: "($code: String!, $limit: Int)", arguments: "(groupCode: $code, limit: $limit)", variables: ["code": code, "limit": 20], fields: Self.alertFields)
+    }
 
     func fetchFamilyDevices(groupCode: String) async throws -> [FamilyDeviceSnapshot] {
-        let document = """
-        query FamilyDevices {
-          familyDevices(groupCode: \(gqlString(groupCode))) {
-            id: deviceID
-            displayName
-            ownerName
-            bpm
-            state
-            latitude
-            longitude
-            isLocationShared
-            isOnline
-            lastUpdated
-          }
-        }
-        """
-        let request = GraphQLRequest<FamilyDevicesQueryWire>(
-            document: document,
-            responseType: FamilyDevicesQueryWire.self
-        )
-
-        print("Sending query:\n\(document)")
-
-        let result = try await Amplify.API.query(request: request)
-        switch result {
-        case .success(let wire):
-            return wire.familyDevices.map { device in
-                FamilyDeviceSnapshot(
-                    id: device.id,
-                    displayName: device.displayName,
-                    ownerName: device.ownerName,
-                    bpm: device.bpm,
-                    state: device.state,
-                    latitude: device.latitude,
-                    longitude: device.longitude,
-                    isLocationShared: device.isLocationShared,
-                    isOnline: device.isOnline,
-                    lastUpdated: parseDate(device.lastUpdated)
-                )
-            }
-        case .failure(let error):
-            print("Query failed: \(error)")
-            throw error
+        let devices: [FamilyDeviceWire] = try await execute("familyDevices", declaration: "($code: String!)", arguments: "(groupCode: $code)", variables: ["code": groupCode], fields: "deviceID displayName ownerName bpm state latitude longitude isLocationShared isOnline lastUpdated")
+        return devices.map {
+            FamilyDeviceSnapshot(id: $0.deviceID, displayName: $0.displayName, ownerName: $0.ownerName, bpm: $0.bpm, state: $0.state, latitude: $0.latitude, longitude: $0.longitude, isLocationShared: $0.isLocationShared, isOnline: $0.isOnline, lastUpdated: Self.parseDate($0.lastUpdated))
         }
     }
 
-    // MARK: - Helpers
-
-    private func send<R: Decodable>(mutation request: GraphQLRequest<R>) async throws -> R {
-        let result = try await Amplify.API.mutate(request: request)
-        switch result {
-        case .success(let data):
-            return data
-        case .failure(let error):
-            print("Mutation failed: \(error)")
-            throw error
-        }
-    }
-
-    /// Safely inlines a String as a quoted, escaped GraphQL string literal.
-    private func gqlString(_ value: String) -> String {
-        var escaped = value.replacingOccurrences(of: "\\", with: "\\\\")
-        escaped = escaped.replacingOccurrences(of: "\"", with: "\\\"")
-        escaped = escaped.replacingOccurrences(of: "\n", with: "\\n")
-        return "\"\(escaped)\""
-    }
-
-    private func gqlOptionalString(_ value: String?) -> String {
-        guard let value else { return "null" }
-        return gqlString(value)
-    }
-
-    private func gqlDate(_ date: Date?) -> String {
-        guard let date else { return "null" }
-        return gqlString(isoFormatter.string(from: date))
-    }
-
-    private func parseDate(_ string: String?) -> Date? {
+    static func parseDate(_ string: String?) -> Date? {
         guard let string else { return nil }
-        return isoFormatterFractional.date(from: string) ?? isoFormatter.date(from: string)
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter.date(from: string) ?? ISO8601DateFormatter().date(from: string)
     }
 }
 
-// MARK: - Wire types (raw decode shapes matching the GraphQL response)
-
-private struct MutationIDWire: Decodable {
-    let id: String
-}
-
-private struct LinkDeviceMutationWire: Decodable {
-    let linkDevice: MutationIDWire
-}
-
-private struct UploadTelemetryMutationWire: Decodable {
-    let uploadFamilyTelemetry: MutationIDWire
-}
-
-private struct SendEmergencyAlertMutationWire: Decodable {
-    let sendEmergencyAlert: MutationIDWire
-}
-
-private struct CancelEmergencyMutationWire: Decodable {
-    let cancelEmergencyAlert: MutationIDWire
-}
-
-private struct FamilyDevicesQueryWire: Decodable {
-    let familyDevices: [FamilyDeviceWire]
-}
-
+private struct DeviceID: Decodable { let deviceID: String }
 private struct FamilyDeviceWire: Decodable {
-    let id: String
+    let deviceID: String
     let displayName: String
     let ownerName: String
     let bpm: Float
