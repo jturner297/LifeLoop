@@ -178,4 +178,14 @@ final class FamilyDeviceManager: ObservableObject {
     private func persistActiveAlert() {
         UserDefaults.standard.set(try? JSONEncoder().encode(activeAlert), forKey: "emergency.active." + groupCode)
     }
+    
+    func requestCheckIn(for deviceID: String) async {
+        syncStatus = "Sending check-in request..."
+        do {
+            _ = try await apiClient.sendPing(code: groupCode, targetDeviceID: deviceID)
+            syncStatus = "Check-in ping sent!"
+        } catch {
+            syncStatus = "Ping failed: \(error.localizedDescription)"
+        }
+    }
 }

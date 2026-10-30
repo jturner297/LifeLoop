@@ -4,8 +4,24 @@ import AWSCognitoAuthPlugin
 import AWSAPIPlugin
 import UserNotifications
 
+class AppDelegate: NSObject, UIApplicationDelegate {
+    var bleMonitor: BLEMonitor?
+    
+    func application(_ application: UIApplication, didReceiveRemoteNotification userInfo: [AnyHashable : Any], fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void) {
+        
+        // 2. Check if the push payload contains the AWS ping trigger
+        if let ping = userInfo["ping"] as? String, ping == "true" {
+            bleMonitor?.sendPingCommand()
+            completionHandler(.newData)
+        } else {
+            completionHandler(.noData)
+        }
+    }
+}
+
 @main
 struct LifeLoopApp: App {
+    @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @StateObject private var bleMonitor = BLEMonitor()
 
     init() {
@@ -17,6 +33,9 @@ struct LifeLoopApp: App {
         WindowGroup {
             AppRootView()
                 .environmentObject(bleMonitor)
+                .onAppear() {
+                    appDelegate.bleMonitor = bleMonitor
+                }
         }
     }
 

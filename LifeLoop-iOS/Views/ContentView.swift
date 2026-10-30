@@ -158,7 +158,7 @@ struct ContentView: View {
                 localDeviceCards
                 Button { addDevice = true } label: {
                     Label("Connect a device", systemImage: "plus").frame(maxWidth: .infinity)
-                }.buttonStyle(.borderedProminent).controlSize(.large)
+                }.buttonStyle(.borderedProminent).tint(LoopStyle.green).foregroundStyle(LoopStyle.ink).controlSize(.large)
             }.padding(24).frame(maxWidth: 720)
         }.loopPage().navigationTitle("Devices")
     }
@@ -203,7 +203,9 @@ struct ContentView: View {
             } label: {
                 Label(timer.isAlertTriggered ? "Cancel emergency alert" : "Call Help", systemImage: timer.isAlertTriggered ? "xmark.circle" : "phone")
                     .frame(maxWidth: .infinity).padding(.vertical, 8)
-            }.buttonStyle(.borderedProminent).tint(timer.isAlertTriggered ? .red : LoopStyle.green)
+            }.buttonStyle(.borderedProminent)
+                .tint(timer.isAlertTriggered ? .red : LoopStyle.green)
+                .foregroundStyle(timer.isAlertTriggered ? .white : LoopStyle.ink)
                 .disabled(isClosingEmergency)
             if isClosingEmergency { ProgressView("Sending cancellation…") }
             if timer.isAlertTriggered {

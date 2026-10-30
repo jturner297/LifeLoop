@@ -184,27 +184,34 @@ struct FamilyAlertsView: View {
     var deviceID: String?
     @State private var cancelTarget: CloudAlert?
     @State private var confirmCancel = false
+    @State private var showOlderAlerts = false
 
     private var displayed: [CloudAlert] { manager.alerts.filter { deviceID == nil || $0.deviceID == deviceID } }
+    private var recentAlerts: [CloudAlert] { Array(displayed.prefix(3)) }
+    private var olderAlerts: [CloudAlert] { Array(displayed.dropFirst(3)) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Recent alerts").font(.title3.bold())
             if displayed.isEmpty { Text("No recent family alerts.").foregroundStyle(.secondary).loopCard() }
-            ForEach(displayed) { alert in
-                VStack(alignment: .leading, spacing: 10) {
-                    Text(alert.displayName).font(.headline)
-                    Text(alert.reason)
-                    Text(alert.status == "PENDING" ? "Calls scheduled" : alert.status == "CANCELED" ? "Canceled" : "Call workflow started")
-                        .font(.subheadline.bold()).foregroundStyle(alert.status == "PENDING" ? .red : LoopStyle.green)
-                    if let date = alert.callDate { Text(date, format: .dateTime.month().day().hour().minute()).font(.caption).foregroundStyle(.secondary) }
-                    if let by = alert.canceledByName { Text("Canceled by \(by)").font(.caption) }
-                    if alert.status == "PENDING" {
-                        Button("Request cancellation") { cancelTarget = alert; confirmCancel = true }
-                        Text("Only the person who started the alert or a family admin can cancel.")
-                            .font(.caption).foregroundStyle(.secondary)
+            ForEach(recentAlerts) { alert in
+                alertCard(alert)
+            }
+            if !olderAlerts.isEmpty {
+                DisclosureGroup(isExpanded: $showOlderAlerts) {
+                    VStack(alignment: .leading, spacing: 14) {
+                        ForEach(olderAlerts) { alert in
+                            alertCard(alert)
+                        }
                     }
-                }.loopCard()
+                    .padding(.top, 10)
+                } label: {
+                    Text(showOlderAlerts ? "Hide older alerts (\(olderAlerts.count))" : "Show \(olderAlerts.count) older alert\(olderAlerts.count == 1 ? "" : "s")")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(LoopStyle.ink)
+                }
+                .tint(LoopStyle.green)
+                .loopCard()
             }
         }
         .confirmationDialog("Cancel this alert before calls begin?", isPresented: $confirmCancel, titleVisibility: .visible) {
@@ -213,4 +220,22 @@ struct FamilyAlertsView: View {
             }
         }
     }
+
+    @ViewBuilder
+    private func alertCard(_ alert: CloudAlert) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(alert.displayName).font(.headline)
+            Text(alert.reason)
+            Text(alert.status == "PENDING" ? "Calls scheduled" : alert.status == "CANCELED" ? "Canceled" : "Call workflow started")
+                .font(.subheadline.bold()).foregroundStyle(alert.status == "PENDING" ? .red : LoopStyle.green)
+            if let date = alert.callDate { Text(date, format: .dateTime.month().day().hour().minute()).font(.caption).foregroundStyle(.secondary) }
+            if let by = alert.canceledByName { Text("Canceled by \(by)").font(.caption) }
+            if alert.status == "PENDING" {
+                Button("Request cancellation") { cancelTarget = alert; confirmCancel = true }
+                Text("Only the person who started the alert or a family admin can cancel.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }.loopCard()
+    }
 }
+

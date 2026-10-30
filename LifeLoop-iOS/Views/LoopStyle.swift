@@ -2,8 +2,8 @@ import SwiftUI
 import MapKit
 
 enum LoopStyle {
-    static let green = Color(red: 0.12, green: 0.44, blue: 0.37)
-    static let mint = Color(red: 0.86, green: 0.94, blue: 0.91)
+    static let green = Color(red: 0.22, green: 1.0, blue: 0.08)
+    static let mint = Color(red: 0.86, green: 0.98, blue: 0.84)
     static let background = Color(red: 0.95, green: 0.97, blue: 0.96)
     static let ink = Color(red: 0.10, green: 0.16, blue: 0.14)
 }
@@ -46,10 +46,20 @@ struct ProfileAvatar: View {
     let name: String
     var size: CGFloat = 54
     var body: some View {
-        Text(name.split(separator: " ").prefix(2).compactMap { $0.first }.map(String.init).joined().uppercased())
-            .font(.title3.bold()).foregroundStyle(LoopStyle.green)
-            .frame(width: size, height: size).background(LoopStyle.mint, in: Circle())
-            .accessibilityHidden(true)
+        let initials = name.split(separator: " ").prefix(2).compactMap { $0.first }.map(String.init).joined().uppercased()
+        Group {
+            if initials.isEmpty {
+                Image(systemName: "person.fill")
+                    .font(.system(size: size * 0.45, weight: .bold))
+            } else {
+                Text(initials)
+                    .font(.title3.bold())
+            }
+        }
+        .foregroundStyle(LoopStyle.ink)
+        .frame(width: size, height: size)
+        .background(LoopStyle.green, in: Circle())
+        .accessibilityHidden(true)
     }
 }
 

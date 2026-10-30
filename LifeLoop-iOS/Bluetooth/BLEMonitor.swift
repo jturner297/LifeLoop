@@ -107,6 +107,9 @@ final class BLEMonitor: NSObject, ObservableObject {
             let telemetryTimedOut = status.lastUpdated.map { now.timeIntervalSince($0) > timeout } ?? false
             
             if peripheralDisconnected || telemetryTimedOut {
+                if let peripheral = connectedPeripherals[id], peripheral.state == .connected {
+                    centralManager.cancelPeripheralConnection(peripheral)
+                }
                 updateStatus(for: id) { updatedStatus in
                     updatedStatus.isConnected = false
                     updatedStatus.isConnecting = false
@@ -151,8 +154,10 @@ final class BLEMonitor: NSObject, ObservableObject {
     }
     
     private func handleTelemetry(_ data: Data, deviceID: String) {
-        guard let payload = String(data: data, encoding: .utf8) else { return }
-        let cleaned = payload.trimmingCharacters(in: .whitespacesAndNewlines)
+        let nonNullData = data.prefix { $0 != 0 }
+        guard let payload = String(data: nonNullData, encoding: .utf8) ?? String(data: data, encoding: .utf8) else { return }
+        let cleaned = payload.trimmingCharacters(in: .whitespacesAndNewlines.union(.controlCharacters))
+        guard !cleaned.isEmpty else { return }
         let fallback = deviceStatuses[deviceID]?.lifeLoopState ?? LifeLoopState()
         let newState = parse(cleaned, fallback: fallback)
         
@@ -215,6 +220,18 @@ final class BLEMonitor: NSObject, ObservableObject {
             }
         }
     }
+    
+    func sendPingCommand() {
+            lastCommandSentAt = Date()
+            let payload = Data("PING".utf8)
+            for (id, peripheral) in connectedPeripherals {
+                if let rxChar = rxCharacteristics[id] {
+                    // Guarantees the nRF52840 receives the check-in ping
+                    peripheral.writeValue(payload, for: rxChar, type: .withResponse)
+                    log("Sent PING command to device")
+                }
+            }
+        }
 
     private func parse(_ cleaned: String, fallback: LifeLoopState) -> LifeLoopState? {
         if let jsonData = cleaned.data(using: .utf8),
@@ -290,7 +307,14 @@ final class BLEMonitor: NSObject, ObservableObject {
 extension BLEMonitor: CBCentralManagerDelegate {
     func centralManagerDidUpdateState(_ central: CBCentralManager) {
         switch central.state {
-        case .poweredOn: bluetoothStateText = "Bluetooth ready"
+        case .poweredOn:
+            bluetoothStateText = "Bluetooth ready"
+            for device in knownDevices where connectedPeripherals[device.id] == nil {
+                connect(toKnown: device)
+            }
+            if knownDevices.contains(where: { connectedPeripherals[$0.id] == nil }) {
+                startScanning()
+            }
         case .poweredOff:
             bluetoothStateText = "Bluetooth is off"
             isScanning = false
@@ -360,6 +384,10 @@ extension BLEMonitor: CBCentralManagerDelegate {
             updateStatus(for: id) { status in
                 status.name = savedName(for: id, fallback: peripheral.name ?? status.name)
                 status.isConnected = peripheral.state == .connected
+                status.isConnecting = peripheral.state == .connecting
+            }
+            if peripheral.state == .connected {
+                peripheral.discoverServices([Self.serviceUUID])
             }
         }
     }
@@ -381,7 +409,8 @@ extension BLEMonitor: CBPeripheralDelegate {
             txCharacteristics[id] = txChar
             if txChar.properties.contains(.notify) || txChar.properties.contains(.indicate) {
                 peripheral.setNotifyValue(true, for: txChar)
-            } else if txChar.properties.contains(.read) {
+            }
+            if txChar.properties.contains(.read) {
                 peripheral.readValue(for: txChar)
             }
         }

@@ -13,11 +13,19 @@ struct GroupsView: View {
                 Text(profile.cloudStatus).font(.callout).foregroundStyle(.secondary)
                 if profile.isSignedIn {
                     HStack {
-                        Button("Create family", systemImage: "plus") { creating = true }.buttonStyle(.borderedProminent)
-                        Button("Join family", systemImage: "person.badge.plus") { joining = true }.buttonStyle(.bordered)
+                        Button("Create family", systemImage: "plus") { creating = true }
+                            .buttonStyle(.borderedProminent)
+                            .tint(LoopStyle.green)
+                            .foregroundStyle(LoopStyle.ink)
+                        Button("Join family", systemImage: "person.badge.plus") { joining = true }
+                            .buttonStyle(.bordered)
+                            .tint(LoopStyle.green)
                     }
                 } else {
-                    Button("Sign in to your family") { account = true }.buttonStyle(.borderedProminent)
+                    Button("Sign in to your family") { account = true }
+                        .buttonStyle(.borderedProminent)
+                        .tint(LoopStyle.green)
+                        .foregroundStyle(LoopStyle.ink)
                 }
                 if profile.groups.isEmpty {
                     ContentUnavailableView("Your family starts here", systemImage: "person.2", description: Text("Create a family or join with an invitation code."))
@@ -106,10 +114,26 @@ struct GroupDetailView: View {
                     Text("Invite your people").font(.headline)
                     Text(group.id).font(.title2.monospaced()).textSelection(.enabled)
                     ShareLink(item: group.id) { Label("Share invitation code", systemImage: "square.and.arrow.up") }
+                        .tint(LoopStyle.green)
                 }.loopCard()
-                NavigationLink { FamilyMembersView(group: group) } label: { Label("Members & roles", systemImage: "person.2").loopCard() }
-                NavigationLink { FamilyContactsView(group: group) } label: { Label("Emergency call contacts", systemImage: "phone").loopCard() }
-                NavigationLink { GroupSharingView(manager: manager) } label: { Label("Shared devices", systemImage: "slider.horizontal.3").loopCard() }
+                NavigationLink { FamilyMembersView(group: group) } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: "person.2.fill").foregroundStyle(LoopStyle.green)
+                        Text("Members & roles").foregroundStyle(LoopStyle.ink)
+                    }.loopCard()
+                }
+                NavigationLink { FamilyContactsView(group: group) } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: "phone.fill").foregroundStyle(LoopStyle.green)
+                        Text("Emergency call contacts").foregroundStyle(LoopStyle.ink)
+                    }.loopCard()
+                }
+                NavigationLink { GroupSharingView(manager: manager) } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: "slider.horizontal.3").foregroundStyle(LoopStyle.green)
+                        Text("Shared devices").foregroundStyle(LoopStyle.ink)
+                    }.loopCard()
+                }
                 FamilyAlertsView(manager: manager)
                 MemberListSection(manager: manager, title: "Shared devices", search: "")
                 Text(manager.syncStatus).font(.footnote).foregroundStyle(.secondary)
@@ -224,10 +248,24 @@ struct MemberInfoView: View {
                     Text(member.displayName).foregroundStyle(.secondary)
                     Label(member.isLocationShared ? manager.addressCache[member.id] ?? "Waiting for address" : "Location not shared", systemImage: "mappin.and.ellipse")
                         .foregroundStyle(.secondary)
+                    
                     HStack {
                         metric(member.isOnline && member.bpm > 0 ? "\(Int(member.bpm)) bpm" : "—", title: "Heart rate")
                         metric(member.isOnline ? "Online" : "Offline", title: "Connection")
                     }
+                    
+                    // NEW CHECK-IN BUTTON
+                    Button {
+                        Task { await manager.requestCheckIn(for: member.id) }
+                    } label: {
+                        Label("Send 'Check-In' Ping", systemImage: "waveform.path.ecg")
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 8)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(LoopStyle.green)
+                    .foregroundStyle(LoopStyle.ink)
+                    
                     MemberMap(name: member.displayName, latitude: member.latitude, longitude: member.longitude, shared: member.isLocationShared)
                     Text("Latest update").font(.title3.bold())
                     VStack(alignment: .leading, spacing: 8) {

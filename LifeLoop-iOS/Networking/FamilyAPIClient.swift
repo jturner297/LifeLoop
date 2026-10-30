@@ -15,6 +15,18 @@ struct FamilyDeviceSnapshot: Identifiable, Codable, Equatable {
     var lastUpdated: Date?
 }
 
+struct CloudCheckIn: Identifiable, Codable {
+    var id: String { checkInID }
+    let checkInID: String
+    let groupCode: String
+    let targetDeviceID: String
+    let initiatorName: String
+    let status: String
+    let createdAt: String
+    let resolvedAt: String?
+}
+
+
 struct FamilyTelemetryPayload: Codable {
     let groupCode: String
     let deviceID: String
@@ -121,6 +133,7 @@ final class FamilyAPIClient {
     static let alertFields = "alertID groupCode deviceID displayName latitude longitude reason status callAt createdAt canceledBy canceledByName canceledAt"
     private let memberFields = "groupCode userID displayName role joinedAt"
     private let contactFields = "groupCode contactID ownerID name phoneNumber"
+    private static let checkInFields = "checkInID groupCode targetDeviceID initiatorName status createdAt resolvedAt"
 
     private init() {}
 
@@ -163,6 +176,28 @@ final class FamilyAPIClient {
         }
         return object
     }
+    
+    func sendPing(code: String, targetDeviceID: String) async throws -> CloudCheckIn {
+            try await execute(
+                "sendPing",
+                declaration: "($code: String!, $target: String!)",
+                arguments: "(groupCode: $code, targetDeviceID: $target)",
+                variables: ["code": code, "target": targetDeviceID],
+                fields: Self.checkInFields,
+                mutation: true
+            )
+        }
+
+        func acknowledgePing(checkInID: String) async throws -> CloudCheckIn {
+            try await execute(
+                "acknowledgePing",
+                declaration: "($id: ID!)",
+                arguments: "(checkInID: $id)",
+                variables: ["id": checkInID],
+                fields: Self.checkInFields,
+                mutation: true
+            )
+        }
 
     func myFamilies() async throws -> [CloudMember] {
         try await execute("myFamilies", fields: memberFields)
