@@ -58,6 +58,11 @@ struct ContentView: View {
         .onChange(of: timer.isCountingDown) { _, counting in
             if counting { sendEmergency() }
         }
+        .onChange(of: bleMonitor.pingAckSequence) { _, _ in
+            for manager in profile.managers.values {
+                manager.uploadLocalDevices(bleMonitor.knownDevices, statuses: bleMonitor.deviceStatuses, fallbackLatitude: gps.latitude, fallbackLongitude: gps.longitude)
+            }
+        }
         .onChange(of: notifications.selectedGroupCode) { _, code in
             guard let code else { return }
             tab = 2

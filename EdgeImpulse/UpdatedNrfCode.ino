@@ -157,8 +157,7 @@ void setup() {
   myIMU.begin();
 
   if (particleSensor.begin(Wire, I2C_SPEED_FAST)) {
-    // ledMode = 2 enables Red + IR (ledMode = 1 is Red-only, which disables getIR())
-    particleSensor.setup(60, 4, 2, 400, 411, 16384);
+    particleSensor.setup(60, 4, 1, 400, 411, 16384);
   }
   
   if (!BLE.begin()) {
@@ -205,60 +204,53 @@ void loop() {
     
     if (hrStandbyMode) {
       particleSensor.wakeUp();
-      particleSensor.clearFIFO();
-      delay(20); // Allow at least one 4-sample average (10ms at 400Hz) to complete
+      delay(2); 
       long irRaw = particleSensor.getIR();
       
-      if (irRaw >= 50000) {
+      if (irRaw >= 80000) {
         hrStandbyMode = false;
         offWristStartTime = 0;
       } else {
         particleSensor.shutDown();
       }
     } else {
-      particleSensor.check();
-      while (particleSensor.available()) {
-        long irRaw = particleSensor.getFIFOIR();
-        particleSensor.nextSample();
-        unsigned long sampleNow = millis();
-        
-        if (irRaw < 50000) {
-          if (offWristStartTime == 0) {
-            offWristStartTime = sampleNow;
-          } else if (sampleNow - offWristStartTime >= OFF_WRIST_TIMEOUT) {
-            hrStandbyMode = true;
-            particleSensor.shutDown();
-            resetHR();
-            break;
-          }
-        } else {
-          offWristStartTime = 0;
-          long smoothed  = movingAverage(irRaw);
-          float filtered = dcRemove((float)smoothed);
-          
-          if (filtered < lastFiltered) {
-            descending = true;
-            if (filtered < troughValue) troughValue = filtered;
-          }
-
-          if (descending && filtered > lastFiltered) {
-            if (troughValue < adaptiveThreshold) {
-              long delta = sampleNow - lastBeatTime;
-              if (delta > 400 && delta < 2000) {
-                addBPM(60000.0 / delta);
-                lastBeatTime = sampleNow;
-                updateThreshold(troughValue);
-              } else if (delta >= 2000) {
-                lastBeatTime = sampleNow;
-                bpmCount = 0; bpmIndex = 0;
-                updateThreshold(troughValue);
-              }
-            }
-            descending = false;
-            troughValue = 0;
-          }
-          lastFiltered = filtered;
+      long irRaw = particleSensor.getIR();
+      
+      if (irRaw < 80000) {
+        if (offWristStartTime == 0) {
+          offWristStartTime = now;
+        } else if (now - offWristStartTime >= OFF_WRIST_TIMEOUT) {
+          hrStandbyMode = true;
+          particleSensor.shutDown();
+          resetHR();
         }
+      } else {
+        offWristStartTime = 0;
+        long smoothed  = movingAverage(irRaw);
+        float filtered = dcRemove((float)smoothed);
+        
+        if (filtered < lastFiltered) {
+          descending = true;
+          if (filtered < troughValue) troughValue = filtered;
+        }
+
+        if (descending && filtered > lastFiltered) {
+          if (troughValue < adaptiveThreshold) {
+            long delta = now - lastBeatTime;
+            if (delta > 400 && delta < 2000) {
+              addBPM(60000.0 / delta);
+              lastBeatTime = now;
+              updateThreshold(troughValue);
+            } else if (delta >= 2000) {
+              lastBeatTime = now;
+              bpmCount = 0; bpmIndex = 0;
+              updateThreshold(troughValue);
+            }
+          }
+          descending = false;
+          troughValue = 0;
+        }
+        lastFiltered = filtered;
       }
     }
   }

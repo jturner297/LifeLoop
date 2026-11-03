@@ -201,7 +201,7 @@ struct MemberListSection: View {
                         VStack(alignment: .leading, spacing: 5) {
                             Text(member.ownerName.isEmpty ? member.displayName : member.ownerName).font(.headline)
                             Text(member.displayName).font(.caption).foregroundStyle(.secondary)
-                            Text(member.isOnline ? "\(Int(member.bpm)) bpm · \(member.state == 0 ? "Normal" : "Needs attention")" : "Offline")
+                            Text(member.isOnline ? "\(Int(member.bpm)) bpm · \(member.state == 0 ? "Normal" : member.state == 5 ? "Check-in pending" : "Needs attention")" : "Offline")
                                 .font(.subheadline).foregroundStyle(member.isOnline ? LoopStyle.green : .secondary)
                         }
                         Spacer()
@@ -265,11 +265,26 @@ struct MemberInfoView: View {
                     .buttonStyle(.borderedProminent)
                     .tint(LoopStyle.green)
                     .foregroundStyle(LoopStyle.ink)
+
+                    if let checkIn = manager.activeCheckIns[member.id] {
+                        HStack(spacing: 10) {
+                            Image(systemName: checkIn.status == "SAFE" ? "checkmark.circle.fill" : "clock.badge.exclamationmark")
+                                .foregroundStyle(checkIn.status == "SAFE" ? LoopStyle.green : .orange)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(checkIn.status == "SAFE" ? "Check-In Confirmed (SAFE)" : "Check-In Pending…")
+                                    .font(.subheadline.bold())
+                                Text(checkIn.status == "SAFE" ? "Wearer acknowledged the check-in on their device." : "Requested by \(checkIn.initiatorName). Waiting for button press.")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .loopCard()
+                    }
                     
                     MemberMap(name: member.displayName, latitude: member.latitude, longitude: member.longitude, shared: member.isLocationShared)
                     Text("Latest update").font(.title3.bold())
                     VStack(alignment: .leading, spacing: 8) {
-                        Text(member.state == 4 ? "EMERGENCY" : member.state == 2 ? "FALL DETECTED" : member.state == 0 ? "Normal" : "Device state \(member.state)").font(.headline)
+                        Text(member.state == 4 ? "EMERGENCY" : member.state == 5 ? "CHECK-IN PING ACTIVE" : member.state == 2 ? "FALL DETECTED" : member.state == 0 ? "Normal" : "Device state \(member.state)").font(.headline)
                         if let updated = member.lastUpdated {
                             Text(updated, format: .dateTime.month().day().year().hour().minute()).foregroundStyle(.secondary)
                         } else { Text("No update received").foregroundStyle(.secondary) }

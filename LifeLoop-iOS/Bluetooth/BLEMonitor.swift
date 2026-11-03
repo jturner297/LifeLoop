@@ -2,6 +2,11 @@ import CoreBluetooth
 import Foundation
 import UserNotifications
 
+extension Notification.Name {
+    static let lifeLoopIncomingPing = Notification.Name("com.lifeloop.incomingPing")
+    static let lifeLoopPingAcknowledged = Notification.Name("com.lifeloop.pingAcknowledged")
+}
+
 final class BLEMonitor: NSObject, ObservableObject {
     static let serviceUUID = CBUUID(string: "6E400001-B5A3-F393-E0A9-E50E24DCCA9E")
     static let txCharacteristicUUID = CBUUID(string: "6E400003-B5A3-F393-E0A9-E50E24DCCA9E")
@@ -16,10 +21,13 @@ final class BLEMonitor: NSObject, ObservableObject {
     @Published private(set) var knownDevices: [KnownDevice] = []
     @Published private(set) var deviceStatuses: [String: DeviceStatus] = [:]
     @Published private(set) var connectionLog: [String] = []
+    @Published private(set) var lastAcknowledgedPingDeviceID: String?
+    @Published private(set) var pingAckSequence: Int = 0
     
     private var centralManager: CBCentralManager!
     private var connectedPeripherals: [String: CBPeripheral] = [:]
     private var txCharacteristics: [String: CBCharacteristic] = [:]
+    private var pingActiveDevices: Set<String> = []
     private let deviceStore = DeviceStore()
     
     // TIMING FIX: Prevents stale telemetry from overriding manual commands
@@ -49,6 +57,16 @@ final class BLEMonitor: NSObject, ObservableObject {
             queue: .main,
             options: [CBCentralManagerOptionRestoreIdentifierKey: "LifeLoopCentralManager"]
         )
+        NotificationCenter.default.addObserver(
+            forName: .lifeLoopIncomingPing,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let self,
+                  let targetDeviceID = notification.userInfo?["targetDeviceID"] as? String,
+                  self.connectedPeripherals[targetDeviceID] != nil else { return }
+            self.sendPingCommand(deviceID: targetDeviceID)
+        }
     }
     
     func startScanning() {
@@ -162,13 +180,31 @@ final class BLEMonitor: NSObject, ObservableObject {
         let newState = parse(cleaned, fallback: fallback)
         
         updateStatus(for: deviceID) { status in
+            let previousState = status.lifeLoopState.state
             status.lastPayload = cleaned
             status.lastUpdated = Date()
             if let newState {
                 status.lifeLoopState = newState
                 let hasFallen = newState.state == 4
+                let isPing = newState.state == 5
                 let isNormal = newState.state == 0
                 let hasCardiacEvent = newState.bpm > 0 && newState.bpm <= 40
+
+                if isPing {
+                    self.pingActiveDevices.insert(deviceID)
+                } else if isNormal && (previousState == 5 || self.pingActiveDevices.contains(deviceID)) {
+                    self.pingActiveDevices.remove(deviceID)
+                    DispatchQueue.main.async {
+                        self.lastAcknowledgedPingDeviceID = deviceID
+                        self.pingAckSequence += 1
+                        self.log("Check-in PING acknowledged on device")
+                        NotificationCenter.default.post(
+                            name: .lifeLoopPingAcknowledged,
+                            object: nil,
+                            userInfo: ["deviceID": deviceID]
+                        )
+                    }
+                }
                 
                 if hasCardiacEvent {
                     DispatchQueue.main.async {
@@ -221,17 +257,25 @@ final class BLEMonitor: NSObject, ObservableObject {
         }
     }
     
-    func sendPingCommand() {
-            lastCommandSentAt = Date()
-            let payload = Data("PING".utf8)
-            for (id, peripheral) in connectedPeripherals {
-                if let rxChar = rxCharacteristics[id] {
-                    // Guarantees the nRF52840 receives the check-in ping
-                    peripheral.writeValue(payload, for: rxChar, type: .withResponse)
-                    log("Sent PING command to device")
-                }
+    func sendPingCommand(deviceID: String? = nil) {
+        lastCommandSentAt = Date()
+        let payload = Data("PING".utf8)
+        if let deviceID,
+           let peripheral = connectedPeripherals[deviceID],
+           let rxChar = rxCharacteristics[deviceID] {
+            // Guarantees the nRF52840 receives the check-in ping
+            peripheral.writeValue(payload, for: rxChar, type: .withResponse)
+            log("Sent PING command to device \(deviceID)")
+            return
+        }
+        for (id, peripheral) in connectedPeripherals {
+            if let rxChar = rxCharacteristics[id] {
+                // Guarantees the nRF52840 receives the check-in ping
+                peripheral.writeValue(payload, for: rxChar, type: .withResponse)
+                log("Sent PING command to device \(id)")
             }
         }
+    }
 
     private func parse(_ cleaned: String, fallback: LifeLoopState) -> LifeLoopState? {
         if let jsonData = cleaned.data(using: .utf8),

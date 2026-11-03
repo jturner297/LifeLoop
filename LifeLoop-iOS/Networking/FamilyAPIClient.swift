@@ -15,7 +15,7 @@ struct FamilyDeviceSnapshot: Identifiable, Codable, Equatable {
     var lastUpdated: Date?
 }
 
-struct CloudCheckIn: Identifiable, Codable {
+struct CloudCheckIn: Identifiable, Codable, Equatable {
     var id: String { checkInID }
     let checkInID: String
     let groupCode: String
@@ -178,26 +178,38 @@ final class FamilyAPIClient {
     }
     
     func sendPing(code: String, targetDeviceID: String) async throws -> CloudCheckIn {
-            try await execute(
-                "sendPing",
-                declaration: "($code: String!, $target: String!)",
-                arguments: "(groupCode: $code, targetDeviceID: $target)",
-                variables: ["code": code, "target": targetDeviceID],
-                fields: Self.checkInFields,
-                mutation: true
-            )
-        }
+        try await execute(
+            "sendPing",
+            declaration: "($code: String!, $target: String!)",
+            arguments: "(groupCode: $code, targetDeviceID: $target)",
+            variables: ["code": code, "target": targetDeviceID],
+            fields: Self.checkInFields,
+            mutation: true
+        )
+    }
 
-        func acknowledgePing(checkInID: String) async throws -> CloudCheckIn {
-            try await execute(
-                "acknowledgePing",
-                declaration: "($id: ID!)",
-                arguments: "(checkInID: $id)",
-                variables: ["id": checkInID],
-                fields: Self.checkInFields,
-                mutation: true
-            )
-        }
+    func acknowledgePing(checkInID: String) async throws -> CloudCheckIn {
+        try await execute(
+            "acknowledgePing",
+            declaration: "($id: ID!)",
+            arguments: "(checkInID: $id)",
+            variables: ["id": checkInID],
+            fields: Self.checkInFields,
+            mutation: true
+        )
+    }
+
+    func subscribeToCheckIns(code: String) -> AmplifyAsyncThrowingSequence<GraphQLSubscriptionEvent<CloudCheckIn>> {
+        let document = "subscription OnCheckInChange($code: String!) { onCheckInChange(groupCode: $code) { \(Self.checkInFields) } }"
+        let request = GraphQLRequest<CloudCheckIn>(
+            document: document,
+            variables: ["code": code],
+            responseType: CloudCheckIn.self,
+            decodePath: "onCheckInChange",
+            authMode: AWSAuthorizationType.amazonCognitoUserPools
+        )
+        return Amplify.API.subscribe(request: request)
+    }
 
     func myFamilies() async throws -> [CloudMember] {
         try await execute("myFamilies", fields: memberFields)

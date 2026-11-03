@@ -1,5 +1,6 @@
 import Foundation
 import CoreLocation
+import Amplify
 
 struct MemberEvent: Identifiable, Codable {
     let id: UUID
@@ -20,15 +21,20 @@ final class FamilyDeviceManager: ObservableObject {
     @Published private(set) var isSyncing = false
     @Published private(set) var activeAlert: CloudAlert?
     @Published private(set) var emergencyError: String?
+    @Published private(set) var activeCheckIns: [String: CloudCheckIn] = [:]
+    @Published private(set) var incomingPing: CloudCheckIn?
 
     private let apiClient: FamilyAPIClient
     private let linkedKey: String
     private var lastRefresh: Date?
     private var lastUploads: [String: Date] = [:]
+    private var lastUploadedStates: [String: Int] = [:]
     private var uploading: Set<String> = []
     private let geocoder = CLGeocoder()
     private var lastLocations: [String: CLLocation] = [:]
     private var pendingInput: StartEmergencyInput?
+    private var checkInSubscriptionTask: Task<Void, Never>?
+    private var handledCheckInIDs: Set<String> = []
 
     init(apiClient: FamilyAPIClient = .shared, groupCode: String? = nil) {
         self.apiClient = apiClient
@@ -39,6 +45,18 @@ final class FamilyDeviceManager: ObservableObject {
         if let data = UserDefaults.standard.data(forKey: "emergency.active." + code) {
             activeAlert = try? JSONDecoder().decode(CloudAlert.self, from: data)
         }
+        NotificationCenter.default.addObserver(
+            forName: .lifeLoopPingAcknowledged,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let self,
+                  let deviceID = notification.userInfo?["deviceID"] as? String else { return }
+            Task { @MainActor in
+                await self.acknowledgeCheckInIfNeeded(for: deviceID)
+            }
+        }
+        ensureCheckInSubscription()
     }
 
     var hasGroup: Bool { !groupCode.isEmpty }
@@ -46,6 +64,8 @@ final class FamilyDeviceManager: ObservableObject {
     private var sharesLocation: Bool { UserDefaults.standard.object(forKey: "com.lifeloop.family.locationSharingEnabled") as? Bool ?? true }
 
     func stopSharing() {
+        checkInSubscriptionTask?.cancel()
+        checkInSubscriptionTask = nil
         linkedDeviceIDs = []
         UserDefaults.standard.set([], forKey: linkedKey)
         groupCode = ""
@@ -63,7 +83,10 @@ final class FamilyDeviceManager: ObservableObject {
     func uploadLocalDevices(_ devices: [KnownDevice], statuses: [String: DeviceStatus], fallbackLatitude: Double, fallbackLongitude: Double) {
         guard hasGroup, sharesInformation else { return }
         for device in devices where linkedDeviceIDs.contains(device.id) {
-            guard !uploading.contains(device.id), Date().timeIntervalSince(lastUploads[device.id] ?? .distantPast) > 15 else { continue }
+            let currentState = statuses[device.id]?.lifeLoopState.state ?? 0
+            let stateChanged = lastUploadedStates[device.id] != currentState
+            guard !uploading.contains(device.id),
+                  stateChanged || Date().timeIntervalSince(lastUploads[device.id] ?? .distantPast) > 15 else { continue }
             uploading.insert(device.id)
             let code = groupCode
             Task {
@@ -77,18 +100,21 @@ final class FamilyDeviceManager: ObservableObject {
                     let online = status?.isConnected == true
                     let latitude = hasDeviceLocation ? state?.latitude ?? 0 : fallbackLatitude
                     let longitude = hasDeviceLocation ? state?.longitude ?? 0 : fallbackLongitude
+                    let currentDeviceState = state?.state ?? 0
                     let payload = FamilyTelemetryPayload(groupCode: code, deviceID: device.id, displayName: device.name,
-                        bpm: online ? state?.bpm ?? 0 : 0, state: state?.state ?? 0,
+                        bpm: online ? state?.bpm ?? 0 : 0, state: currentDeviceState,
                         latitude: sharesLocation && online ? latitude : 0,
                         longitude: sharesLocation && online ? longitude : 0,
                         isLocationShared: sharesLocation && online, isOnline: online, lastUpdated: status?.lastUpdated)
                     try await apiClient.uploadTelemetry(payload)
+                    lastUploadedStates[device.id] = currentDeviceState
                 } catch { syncStatus = error.localizedDescription }
             }
         }
     }
 
     func refreshFamilyDevices(force: Bool = true) async {
+        ensureCheckInSubscription()
         guard hasGroup, !isSyncing else { return }
         if !force && Date().timeIntervalSince(lastRefresh ?? .distantPast) < 10 { return }
         isSyncing = true
@@ -178,14 +204,80 @@ final class FamilyDeviceManager: ObservableObject {
     private func persistActiveAlert() {
         UserDefaults.standard.set(try? JSONEncoder().encode(activeAlert), forKey: "emergency.active." + groupCode)
     }
-    
+
+    func ensureCheckInSubscription() {
+        guard hasGroup, checkInSubscriptionTask == nil else { return }
+        let code = groupCode
+        checkInSubscriptionTask = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let self, self.hasGroup else { break }
+                let sequence = self.apiClient.subscribeToCheckIns(code: code)
+                do {
+                    for try await event in sequence {
+                        if Task.isCancelled { break }
+                        if case .data(let result) = event,
+                           case .success(let checkIn) = result {
+                            self.handleCheckInUpdate(checkIn)
+                        }
+                    }
+                } catch {
+                    if Task.isCancelled { break }
+                }
+                try? await Task.sleep(for: .seconds(3))
+            }
+            await MainActor.run { [weak self] in
+                self?.checkInSubscriptionTask = nil
+            }
+        }
+    }
+
+    private func handleCheckInUpdate(_ checkIn: CloudCheckIn) {
+        activeCheckIns[checkIn.targetDeviceID] = checkIn
+        if checkIn.status == "PENDING" {
+            syncStatus = "Check-in requested by \(checkIn.initiatorName)"
+            if !handledCheckInIDs.contains(checkIn.checkInID) {
+                handledCheckInIDs.insert(checkIn.checkInID)
+                incomingPing = checkIn
+                NotificationCenter.default.post(
+                    name: .lifeLoopIncomingPing,
+                    object: nil,
+                    userInfo: ["targetDeviceID": checkIn.targetDeviceID]
+                )
+            }
+        } else if checkIn.status == "SAFE" {
+            syncStatus = "Check-in confirmed SAFE!"
+        }
+    }
+
     func requestCheckIn(for deviceID: String) async {
         syncStatus = "Sending check-in request..."
         do {
-            _ = try await apiClient.sendPing(code: groupCode, targetDeviceID: deviceID)
-            syncStatus = "Check-in ping sent!"
+            let checkIn = try await apiClient.sendPing(code: groupCode, targetDeviceID: deviceID)
+            activeCheckIns[deviceID] = checkIn
+            syncStatus = "Check-in ping sent! Waiting for response..."
+            if !handledCheckInIDs.contains(checkIn.checkInID) {
+                handledCheckInIDs.insert(checkIn.checkInID)
+                incomingPing = checkIn
+                NotificationCenter.default.post(
+                    name: .lifeLoopIncomingPing,
+                    object: nil,
+                    userInfo: ["targetDeviceID": checkIn.targetDeviceID]
+                )
+            }
         } catch {
             syncStatus = "Ping failed: \(error.localizedDescription)"
+        }
+    }
+
+    func acknowledgeCheckInIfNeeded(for deviceID: String) async {
+        guard let checkIn = activeCheckIns[deviceID], checkIn.status == "PENDING" else { return }
+        do {
+            let updated = try await apiClient.acknowledgePing(checkInID: checkIn.checkInID)
+            activeCheckIns[deviceID] = updated
+            lastUploads[deviceID] = .distantPast
+            syncStatus = "Check-in confirmed SAFE!"
+        } catch {
+            syncStatus = "Acknowledge failed: \(error.localizedDescription)"
         }
     }
 }
