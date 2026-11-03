@@ -3,4 +3,7 @@
 	(lib (name "MAX30102_BREAKOUT") (type "KiCad") (uri "C:/Users/Justin Turner/Documents/Projects/LifeLoop/pcb/Materials/MAX30102_BREAKOUT.pretty") (options "") (descr ""))
 	(lib (name "MAX30102SMD") (type "KiCad") (uri "${KIPRJMOD}/MAX30102SMD.pretty") (options "") (descr ""))
 	(lib (name "easyeda2kicad.3dshapes") (type "KiCad") (uri "C:/Users/Justin Turner/Documents/Projects/LifeLoop/pcb/Materials/easyeda2kicad.3dshapes") (options "") (descr ""))
+	(lib (name "CustomSolderPads") (type "KiCad") (uri "${KIPRJMOD}/CustomSolderPads.pretty") (options "") (descr ""))
+	(lib (name "motors") (type "KiCad") (uri "${KIPRJMOD}/motors.pretty") (options "") (descr ""))
+	(lib (name "MAX30102SMD") (type "KiCad") (uri "${KIPRJMOD}/MAX30102SMD.pretty") (options "") (descr ""))
 )
