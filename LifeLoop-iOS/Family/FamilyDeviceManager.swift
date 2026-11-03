@@ -29,11 +29,13 @@ final class FamilyDeviceManager: ObservableObject {
     private var lastRefresh: Date?
     private var lastUploads: [String: Date] = [:]
     private var lastUploadedStates: [String: Int] = [:]
+    private var lastUploadedBPMs: [String: Float] = [:]
     private var uploading: Set<String> = []
-    private let geocoder = CLGeocoder()
+    private var geocodingIDs: Set<String> = []
     private var lastLocations: [String: CLLocation] = [:]
     private var pendingInput: StartEmergencyInput?
     private var checkInSubscriptionTask: Task<Void, Never>?
+    private var activeCheckInSequence: AmplifyAsyncThrowingSequence<GraphQLSubscriptionEvent<CloudCheckIn>>?
     private var handledCheckInIDs: Set<String> = []
 
     init(apiClient: FamilyAPIClient = .shared, groupCode: String? = nil) {
@@ -64,6 +66,8 @@ final class FamilyDeviceManager: ObservableObject {
     private var sharesLocation: Bool { UserDefaults.standard.object(forKey: "com.lifeloop.family.locationSharingEnabled") as? Bool ?? true }
 
     func stopSharing() {
+        activeCheckInSequence?.cancel()
+        activeCheckInSequence = nil
         checkInSubscriptionTask?.cancel()
         checkInSubscriptionTask = nil
         linkedDeviceIDs = []
@@ -83,31 +87,50 @@ final class FamilyDeviceManager: ObservableObject {
     func uploadLocalDevices(_ devices: [KnownDevice], statuses: [String: DeviceStatus], fallbackLatitude: Double, fallbackLongitude: Double) {
         guard hasGroup, sharesInformation else { return }
         for device in devices where linkedDeviceIDs.contains(device.id) {
-            let currentState = statuses[device.id]?.lifeLoopState.state ?? 0
+            let status = statuses[device.id]
+            let currentState = status?.lifeLoopState.state ?? 0
+            let currentBPM = status?.lifeLoopState.bpm ?? 0
             let stateChanged = lastUploadedStates[device.id] != currentState
+            let bpmChanged = currentBPM > 0 && abs(currentBPM - (lastUploadedBPMs[device.id] ?? 0)) >= 1.0
             guard !uploading.contains(device.id),
-                  stateChanged || Date().timeIntervalSince(lastUploads[device.id] ?? .distantPast) > 15 else { continue }
+                  stateChanged || bpmChanged || Date().timeIntervalSince(lastUploads[device.id] ?? .distantPast) > 10 else { continue }
             uploading.insert(device.id)
             let code = groupCode
+            let existingSnapshot = familyDevices.first(where: { $0.id == device.id })
             Task {
                 defer { uploading.remove(device.id); lastUploads[device.id] = Date() }
                 do {
                     try await apiClient.linkDevice(LinkDevicePayload(groupCode: code, deviceID: device.id, displayName: device.name))
                     guard hasGroup, sharesInformation, linkedDeviceIDs.contains(device.id) else { return }
-                    let status = statuses[device.id]
-                    let state = status?.lifeLoopState
+                    let latestStatus = statuses[device.id]
+                    let state = latestStatus?.lifeLoopState
                     let hasDeviceLocation = state.map { $0.latitude != 0 || $0.longitude != 0 } ?? false
-                    let online = status?.isConnected == true
-                    let latitude = hasDeviceLocation ? state?.latitude ?? 0 : fallbackLatitude
-                    let longitude = hasDeviceLocation ? state?.longitude ?? 0 : fallbackLongitude
+                    let online = latestStatus?.isConnected == true
+                    let rawLatitude = hasDeviceLocation ? state?.latitude ?? 0 : fallbackLatitude
+                    let rawLongitude = hasDeviceLocation ? state?.longitude ?? 0 : fallbackLongitude
+                    let latitude = rawLatitude != 0 ? rawLatitude : (existingSnapshot?.latitude ?? 0)
+                    let longitude = rawLongitude != 0 ? rawLongitude : (existingSnapshot?.longitude ?? 0)
+                    let hasValidLocation = sharesLocation && (latitude != 0 || longitude != 0)
                     let currentDeviceState = state?.state ?? 0
-                    let payload = FamilyTelemetryPayload(groupCode: code, deviceID: device.id, displayName: device.name,
-                        bpm: online ? state?.bpm ?? 0 : 0, state: currentDeviceState,
-                        latitude: sharesLocation && online ? latitude : 0,
-                        longitude: sharesLocation && online ? longitude : 0,
-                        isLocationShared: sharesLocation && online, isOnline: online, lastUpdated: status?.lastUpdated)
+                    let liveBPM = state?.bpm ?? 0
+                    let bpmToUpload = liveBPM > 0 ? liveBPM : (existingSnapshot?.bpm ?? 0)
+                    let payload = FamilyTelemetryPayload(
+                        groupCode: code,
+                        deviceID: device.id,
+                        displayName: device.name,
+                        bpm: bpmToUpload,
+                        state: currentDeviceState,
+                        latitude: hasValidLocation ? latitude : 0,
+                        longitude: hasValidLocation ? longitude : 0,
+                        isLocationShared: hasValidLocation,
+                        isOnline: online,
+                        lastUpdated: latestStatus?.lastUpdated ?? existingSnapshot?.lastUpdated ?? Date()
+                    )
                     try await apiClient.uploadTelemetry(payload)
                     lastUploadedStates[device.id] = currentDeviceState
+                    if bpmToUpload > 0 {
+                        lastUploadedBPMs[device.id] = bpmToUpload
+                    }
                 } catch { syncStatus = error.localizedDescription }
             }
         }
@@ -138,11 +161,27 @@ final class FamilyDeviceManager: ObservableObject {
             return
         }
         let location = CLLocation(latitude: device.latitude, longitude: device.longitude)
-        if let previous = lastLocations[device.id], location.distance(from: previous) < 100 { return }
-        lastLocations[device.id] = location
-        geocoder.reverseGeocodeLocation(location) { [weak self] placemarks, _ in
-            let address = placemarks?.first.map { [$0.locality, $0.administrativeArea].compactMap { $0 }.joined(separator: ", ") }
-            Task { @MainActor in self?.addressCache[device.id] = address }
+        if let previous = lastLocations[device.id],
+           let cached = addressCache[device.id],
+           !cached.isEmpty,
+           location.distance(from: previous) < 50 {
+            return
+        }
+        guard !geocodingIDs.contains(device.id) else { return }
+        geocodingIDs.insert(device.id)
+        Task {
+            defer { geocodingIDs.remove(device.id) }
+            let geocoder = CLGeocoder()
+            guard let placemark = try? await geocoder.reverseGeocodeLocation(location).first else { return }
+            let streetParts = [placemark.subThoroughfare, placemark.thoroughfare].compactMap { $0 }.filter { !$0.isEmpty }
+            let streetLine = streetParts.isEmpty ? (placemark.name ?? "") : streetParts.joined(separator: " ")
+            let cityState = [placemark.locality, placemark.administrativeArea].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: ", ")
+            let cityStateZip = [cityState, placemark.postalCode].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " ")
+            let formatted = [streetLine, cityStateZip].filter { !$0.isEmpty }.joined(separator: ", ")
+            if !formatted.isEmpty {
+                addressCache[device.id] = formatted
+                lastLocations[device.id] = location
+            }
         }
     }
 
@@ -212,20 +251,31 @@ final class FamilyDeviceManager: ObservableObject {
             while !Task.isCancelled {
                 guard let self, self.hasGroup else { break }
                 let sequence = self.apiClient.subscribeToCheckIns(code: code)
+                self.activeCheckInSequence = sequence
                 do {
                     for try await event in sequence {
                         if Task.isCancelled { break }
-                        if case .data(let result) = event,
-                           case .success(let checkIn) = result {
-                            self.handleCheckInUpdate(checkIn)
+                        switch event {
+                        case .connection(let state):
+                            if state == .disconnected {
+                                break
+                            }
+                        case .data(let result):
+                            if case .success(let checkIn) = result {
+                                self.handleCheckInUpdate(checkIn)
+                            }
                         }
                     }
                 } catch {
                     if Task.isCancelled { break }
                 }
-                try? await Task.sleep(for: .seconds(3))
+                sequence.cancel()
+                self.activeCheckInSequence = nil
+                try? await Task.sleep(for: .seconds(2))
             }
             await MainActor.run { [weak self] in
+                self?.activeCheckInSequence?.cancel()
+                self?.activeCheckInSequence = nil
                 self?.checkInSubscriptionTask = nil
             }
         }
@@ -250,6 +300,7 @@ final class FamilyDeviceManager: ObservableObject {
     }
 
     func requestCheckIn(for deviceID: String) async {
+        ensureCheckInSubscription()
         syncStatus = "Sending check-in request..."
         do {
             let checkIn = try await apiClient.sendPing(code: groupCode, targetDeviceID: deviceID)

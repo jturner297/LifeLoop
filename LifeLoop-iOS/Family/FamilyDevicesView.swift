@@ -177,12 +177,18 @@ struct GroupSharingView: View {
 }
 
 struct MemberListSection: View {
+    @EnvironmentObject private var bleMonitor: BLEMonitor
     @ObservedObject var manager: FamilyDeviceManager
     let title: String
     let search: String
 
     private var members: [FamilyDeviceSnapshot] {
         manager.familyDevices.filter { search.isEmpty || $0.displayName.localizedCaseInsensitiveContains(search) || $0.ownerName.localizedCaseInsensitiveContains(search) }
+    }
+
+    private func latestBPM(for member: FamilyDeviceSnapshot) -> Float {
+        let localBPM = bleMonitor.deviceStatuses[member.id]?.lifeLoopState.bpm ?? 0
+        return localBPM > 0 ? localBPM : member.bpm
     }
 
     var body: some View {
@@ -193,6 +199,8 @@ struct MemberListSection: View {
                     .foregroundStyle(.secondary).loopCard()
             }
             ForEach(members) { member in
+                let bpm = latestBPM(for: member)
+                let bpmLabel = bpm > 0 ? "\(Int(bpm.rounded())) bpm" : "— bpm"
                 NavigationLink {
                     MemberInfoView(memberID: member.id, manager: manager)
                 } label: {
@@ -201,7 +209,7 @@ struct MemberListSection: View {
                         VStack(alignment: .leading, spacing: 5) {
                             Text(member.ownerName.isEmpty ? member.displayName : member.ownerName).font(.headline)
                             Text(member.displayName).font(.caption).foregroundStyle(.secondary)
-                            Text(member.isOnline ? "\(Int(member.bpm)) bpm · \(member.state == 0 ? "Normal" : member.state == 5 ? "Check-in pending" : "Needs attention")" : "Offline")
+                            Text(member.isOnline || bpm > 0 ? "\(bpmLabel) · \(member.state == 0 ? "Normal" : member.state == 5 ? "Check-in pending" : "Needs attention")" : "Offline")
                                 .font(.subheadline).foregroundStyle(member.isOnline ? LoopStyle.green : .secondary)
                         }
                         Spacer()
@@ -231,27 +239,44 @@ struct GroupMapSection: View {
 }
 
 struct MemberInfoView: View {
+    @EnvironmentObject private var bleMonitor: BLEMonitor
     let memberID: String
     @ObservedObject var manager: FamilyDeviceManager
     @State private var cancel = false
 
     private var member: FamilyDeviceSnapshot? { manager.familyDevices.first { $0.id == memberID } }
 
+    private func latestBPM(for member: FamilyDeviceSnapshot) -> Float {
+        let localBPM = bleMonitor.deviceStatuses[member.id]?.lifeLoopState.bpm ?? 0
+        return localBPM > 0 ? localBPM : member.bpm
+    }
+
+    private func streetAddressText(for member: FamilyDeviceSnapshot) -> String {
+        guard member.isLocationShared, member.latitude != 0 || member.longitude != 0 else {
+            return "Location not shared"
+        }
+        return manager.addressCache[member.id] ?? "Resolving street address…"
+    }
+
     var body: some View {
         ScrollView {
             if let member {
+                let bpm = latestBPM(for: member)
+                let isConnected = (bleMonitor.deviceStatuses[member.id]?.isConnected == true) || member.isOnline
+                let addressText = streetAddressText(for: member)
                 VStack(alignment: .leading, spacing: 24) {
                     ProfileAvatar(name: member.ownerName, size: 100)
                         .frame(maxWidth: .infinity).padding(30)
                         .background(LoopStyle.mint, in: RoundedRectangle(cornerRadius: 24))
                     Text(member.ownerName.isEmpty ? member.displayName : member.ownerName).font(.largeTitle.bold())
                     Text(member.displayName).foregroundStyle(.secondary)
-                    Label(member.isLocationShared ? manager.addressCache[member.id] ?? "Waiting for address" : "Location not shared", systemImage: "mappin.and.ellipse")
+                    Label(addressText, systemImage: "mappin.and.ellipse")
                         .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
                     
                     HStack {
-                        metric(member.isOnline && member.bpm > 0 ? "\(Int(member.bpm)) bpm" : "—", title: "Heart rate")
-                        metric(member.isOnline ? "Online" : "Offline", title: "Connection")
+                        metric(bpm > 0 ? "\(Int(bpm.rounded())) bpm" : "—", title: "Heart rate")
+                        metric(isConnected ? "Online" : "Offline", title: "Connection")
                     }
                     
                     // NEW CHECK-IN BUTTON
@@ -281,6 +306,17 @@ struct MemberInfoView: View {
                         .loopCard()
                     }
                     
+                    VStack(alignment: .leading, spacing: 8) {
+                        Label("Street Address", systemImage: "location.fill")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(LoopStyle.green)
+                        Text(addressText)
+                            .font(.headline)
+                            .foregroundStyle(LoopStyle.ink)
+                            .textSelection(.enabled)
+                    }
+                    .loopCard()
+
                     MemberMap(name: member.displayName, latitude: member.latitude, longitude: member.longitude, shared: member.isLocationShared)
                     Text("Latest update").font(.title3.bold())
                     VStack(alignment: .leading, spacing: 8) {
@@ -296,6 +332,18 @@ struct MemberInfoView: View {
                 ContentUnavailableView("Member unavailable", systemImage: "person.crop.circle.badge.questionmark")
             }
         }.loopPage().navigationTitle("Member info").navigationBarTitleDisplayMode(.inline)
+            .task(id: memberID) {
+                if let member {
+                    manager.resolveAddress(for: member)
+                }
+                while !Task.isCancelled {
+                    await manager.refreshFamilyDevices(force: true)
+                    if let member {
+                        manager.resolveAddress(for: member)
+                    }
+                    try? await Task.sleep(for: .seconds(4))
+                }
+            }
             .refreshable { await manager.refreshFamilyDevices() }
             .confirmationDialog("Request cancellation for this member?", isPresented: $cancel, titleVisibility: .visible) {
                 Button("Request cancellation", role: .destructive) {

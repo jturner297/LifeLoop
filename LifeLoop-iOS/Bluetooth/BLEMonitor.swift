@@ -28,6 +28,7 @@ final class BLEMonitor: NSObject, ObservableObject {
     private var connectedPeripherals: [String: CBPeripheral] = [:]
     private var txCharacteristics: [String: CBCharacteristic] = [:]
     private var pingActiveDevices: Set<String> = []
+    private var pingSentAt: [String: Date] = [:]
     private let deviceStore = DeviceStore()
     
     // TIMING FIX: Prevents stale telemetry from overriding manual commands
@@ -63,9 +64,12 @@ final class BLEMonitor: NSObject, ObservableObject {
             queue: .main
         ) { [weak self] notification in
             guard let self,
-                  let targetDeviceID = notification.userInfo?["targetDeviceID"] as? String,
-                  self.connectedPeripherals[targetDeviceID] != nil else { return }
-            self.sendPingCommand(deviceID: targetDeviceID)
+                  let targetDeviceID = notification.userInfo?["targetDeviceID"] as? String else { return }
+            let matchedID = self.connectedPeripherals.keys.first {
+                $0.caseInsensitiveCompare(targetDeviceID) == .orderedSame
+            }
+            guard let matchedID else { return }
+            self.sendPingCommand(deviceID: matchedID)
         }
     }
     
@@ -190,10 +194,16 @@ final class BLEMonitor: NSObject, ObservableObject {
                 let isNormal = newState.state == 0
                 let hasCardiacEvent = newState.bpm > 0 && newState.bpm <= 40
 
+                let awaitingAckFromSend = self.pingSentAt[deviceID].map {
+                    let elapsed = Date().timeIntervalSince($0)
+                    return elapsed > 0.45 && elapsed < 120
+                } ?? false
+
                 if isPing {
                     self.pingActiveDevices.insert(deviceID)
-                } else if isNormal && (previousState == 5 || self.pingActiveDevices.contains(deviceID)) {
+                } else if isNormal && (previousState == 5 || self.pingActiveDevices.contains(deviceID) || awaitingAckFromSend) {
                     self.pingActiveDevices.remove(deviceID)
+                    self.pingSentAt.removeValue(forKey: deviceID)
                     DispatchQueue.main.async {
                         self.lastAcknowledgedPingDeviceID = deviceID
                         self.pingAckSequence += 1
@@ -258,19 +268,23 @@ final class BLEMonitor: NSObject, ObservableObject {
     }
     
     func sendPingCommand(deviceID: String? = nil) {
-        lastCommandSentAt = Date()
+        let now = Date()
+        lastCommandSentAt = now
         let payload = Data("PING".utf8)
         if let deviceID,
-           let peripheral = connectedPeripherals[deviceID],
-           let rxChar = rxCharacteristics[deviceID] {
+           let matchedID = connectedPeripherals.keys.first(where: { $0.caseInsensitiveCompare(deviceID) == .orderedSame }),
+           let peripheral = connectedPeripherals[matchedID],
+           let rxChar = rxCharacteristics[matchedID] {
             // Guarantees the nRF52840 receives the check-in ping
+            pingSentAt[matchedID] = now
             peripheral.writeValue(payload, for: rxChar, type: .withResponse)
-            log("Sent PING command to device \(deviceID)")
+            log("Sent PING command to device \(matchedID)")
             return
         }
         for (id, peripheral) in connectedPeripherals {
             if let rxChar = rxCharacteristics[id] {
                 // Guarantees the nRF52840 receives the check-in ping
+                pingSentAt[id] = now
                 peripheral.writeValue(payload, for: rxChar, type: .withResponse)
                 log("Sent PING command to device \(id)")
             }
@@ -299,8 +313,9 @@ final class BLEMonitor: NSObject, ObservableObject {
 
         let values = pairs.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
         guard values.count >= 4 else { return nil }
+        let parsedBPM = Float(values[0]) ?? fallback.bpm
         return LifeLoopState(
-            bpm: Float(values[0]) ?? fallback.bpm,
+            bpm: parsedBPM > 0 ? parsedBPM : fallback.bpm,
             state: Int(values[1]) ?? fallback.state,
             battery: fallback.battery,
             latitude: Double(values[2]) ?? fallback.latitude,
@@ -317,7 +332,8 @@ final class BLEMonitor: NSObject, ObservableObject {
             }
             return nil
         }
-        let bpm = doubleValue(["bpm"]).map(Float.init) ?? fallback.bpm
+        let parsedBPM = doubleValue(["bpm", "heartrate", "hr"]).map(Float.init) ?? fallback.bpm
+        let bpm = parsedBPM > 0 ? parsedBPM : fallback.bpm
         let state = doubleValue(["state"]).map(Int.init) ?? fallback.state
         let latitude = doubleValue(["latitude", "lat"]) ?? fallback.latitude
         let longitude = doubleValue(["longitude", "lon", "lng"]) ?? fallback.longitude

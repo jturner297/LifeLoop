@@ -157,7 +157,8 @@ void setup() {
   myIMU.begin();
 
   if (particleSensor.begin(Wire, I2C_SPEED_FAST)) {
-    particleSensor.setup(60, 4, 1, 400, 411, 16384);
+    // ledMode = 2 enables Red + IR (ledMode = 1 is Red-only, which disables getIR())
+    particleSensor.setup(60, 4, 2, 400, 411, 16384);
   }
   
   if (!BLE.begin()) {
@@ -405,7 +406,10 @@ void loop() {
           } else if (now - buttonPressStartTime >= 500) { 
             fallState = Normal; 
             buttonPressStartTime = 0;
-            imuBufferIndex = 0; 
+            imuBufferIndex = 0;
+            ledRedState = true;
+            noTone(BUZZER_PIN);
+            digitalWrite(LED_BLUE, LOW);
           }
         } else {
           buttonPressStartTime = 0; 
@@ -427,10 +431,21 @@ void loop() {
     
     if (command == "CANCEL") {
       fallState = Normal;
-      imuBufferIndex = 0; 
+      buttonPressStartTime = 0;
+      imuBufferIndex = 0;
+      ledRedState = true;
+      noTone(BUZZER_PIN);
+      digitalWrite(LED_BLUE, LOW);
     } else if (command == "PING") {
       fallState = Ping;
+      lastSentFallState = Normal;
+      buttonPressStartTime = 0;
+      ledRedState = false;
       lastBlinkTime = now;
+      digitalWrite(LED_RED, HIGH);
+      digitalWrite(LED_GREEN, HIGH);
+      digitalWrite(LED_BLUE, LOW);
+      tone(BUZZER_PIN, 2000);
     }
   }
 
