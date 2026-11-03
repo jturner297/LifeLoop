@@ -107,6 +107,13 @@ final class UserProfile {
         memberships.first { $0.groupCode == code }?.role
     }
 
+    func renameGroup(_ group: LoopGroup, name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, let index = groups.firstIndex(where: { $0.id == group.id }) else { return }
+        saveNickname(trimmed, code: group.id)
+        groups[index].name = trimmed
+    }
+
     private func saveNickname(_ name: String, code: String) {
         var names = UserDefaults.standard.dictionary(forKey: "group.nicknames") as? [String: String] ?? [:]
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)

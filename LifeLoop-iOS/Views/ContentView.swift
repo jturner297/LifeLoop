@@ -8,7 +8,6 @@ struct ContentView: View {
     @State private var notifications = LoopNotifications.shared
     @State private var notificationGroup: LoopGroup?
     @State private var cancellationMessage = ""
-    @State private var showCancellationMessage = false
     @State private var tab = 0
     @State private var search = ""
     @State private var filter = 0
@@ -63,36 +62,54 @@ struct ContentView: View {
                 manager.uploadLocalDevices(bleMonitor.knownDevices, statuses: bleMonitor.deviceStatuses, fallbackLatitude: gps.latitude, fallbackLongitude: gps.longitude)
             }
         }
-        .onChange(of: notifications.selectedGroupCode) { _, code in
-            guard let code else { return }
-            tab = 2
-            notificationGroup = profile.groups.first { $0.id == code }
-            notifications.selectedGroupCode = nil
+        .onChange(of: bleMonitor.cancellationRequest) { _, request in
+            guard let request, timer.isActive || timer.isAlertTriggered else { return }
+            // Only the originating device can cancel a device-triggered emergency.
+            // Any connected saved device can cancel a manual app SOS.
+            guard timer.triggerDeviceID == nil || timer.triggerDeviceID == request.deviceID else { return }
+            closeEmergency()
+        }
+        .onChange(of: notifications.selectedGroupCode) { _, _ in
+            routePendingNotification()
         }
         .sheet(item: $notificationGroup) { group in
             if let manager = profile.managers[group.id] {
                 NavigationStack { GroupDetailView(group: group, manager: manager) }
+                    .environment(profile)
+                    .environmentObject(bleMonitor)
             }
         }
-        .alert("Cancellation status", isPresented: $showCancellationMessage) {
-            Button("OK", role: .cancel) {}
-        } message: { Text(cancellationMessage) }
         .task {
             while !Task.isCancelled {
                 await profile.refreshFamilies(force: false)
-                if let code = notifications.selectedGroupCode, let group = profile.groups.first(where: { $0.id == code }) {
-                    tab = 2
-                    notificationGroup = group
-                    notifications.selectedGroupCode = nil
-                }
+                routePendingNotification()
                 bleMonitor.checkOfflineDevices()
                 for manager in profile.managers.values {
                     manager.uploadLocalDevices(bleMonitor.knownDevices, statuses: bleMonitor.deviceStatuses, fallbackLatitude: gps.latitude, fallbackLongitude: gps.longitude)
                     await manager.refreshFamilyDevices(force: false)
                 }
+                // A confirmed cancellation from every notified group ends the local warning.
+                if !emergencyRecipients.isEmpty,
+                   emergencyRecipients.allSatisfy({ $0.activeAlert?.status == "CANCELED" }),
+                   timer.isActive || timer.isAlertTriggered {
+                    bleMonitor.sendCancelCommand()
+                    timer.cancelCountdown()
+                }
                 do { try await Task.sleep(for: .seconds(5)) } catch { return }
             }
         }
+    }
+
+    private func routePendingNotification() {
+        // Keep cold-launch taps pending until membership loads and other presentations finish.
+        guard let code = notifications.selectedGroupCode,
+              !timer.isActive, !timer.isAlertTriggered,
+              !addDevice, selectedDevice == nil, notificationGroup == nil,
+              let group = profile.groups.first(where: { $0.id == code }),
+              profile.managers[group.id] != nil else { return }
+        tab = 2
+        notificationGroup = group
+        notifications.selectedGroupCode = nil
     }
 
     private var home: some View {
@@ -229,7 +246,7 @@ struct ContentView: View {
         let sessionID = UUID()
         emergencySessionID = sessionID
         let recipients = Array(profile.managers.values)
-        let deviceID = bleMonitor.knownDevices.first?.id
+        let deviceID = timer.triggerDeviceID
         let ownerName = profile.name
         let latitude = gps.latitude
         let longitude = gps.longitude
@@ -266,17 +283,12 @@ struct ContentView: View {
     }
 
     private func closeEmergency() {
-        emergencySessionID = UUID()
+        guard !isClosingEmergency else { return }
         isClosingEmergency = true
         let delivery = emergencyTask
         let recipients = emergencyRecipients
         let deviceID = emergencyDeviceID
         let ownerName = profile.name
-        bleMonitor.sendCancelCommand()
-        timer.cancelCountdown()
-        tab = 0
-        filter = 0
-        search = ""
         // Send cancellation after the in-flight alert to preserve ordering.
         Task {
             await delivery?.value
@@ -286,7 +298,15 @@ struct ContentView: View {
             let failures = recipients.compactMap { $0.emergencyError }
             if !failures.isEmpty {
                 cancellationMessage = failures.joined(separator: "\n")
-                showCancellationMessage = true
+                emergencyDeliveryTitle = "Cancellation unconfirmed"
+                emergencyDeliveryMessage = cancellationMessage + "\nThe alert remains active. Try canceling again."
+            } else {
+                emergencySessionID = UUID()
+                bleMonitor.sendCancelCommand()
+                timer.cancelCountdown()
+                tab = 0
+                filter = 0
+                search = ""
             }
             isClosingEmergency = false
         }

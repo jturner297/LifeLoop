@@ -88,12 +88,13 @@ final class FamilyDeviceManager: ObservableObject {
         guard hasGroup, sharesInformation else { return }
         for device in devices where linkedDeviceIDs.contains(device.id) {
             let status = statuses[device.id]
-            let currentState = status?.lifeLoopState.state ?? 0
-            let currentBPM = status?.lifeLoopState.bpm ?? 0
+            let online = status?.isConnected == true
+            let currentState = online ? (status?.lifeLoopState.state ?? 0) : 0
+            let currentBPM: Float = online ? (status?.lifeLoopState.bpm ?? 0) : 0
             let stateChanged = lastUploadedStates[device.id] != currentState
-            let bpmChanged = currentBPM > 0 && abs(currentBPM - (lastUploadedBPMs[device.id] ?? 0)) >= 1.0
+            let bpmChanged = lastUploadedBPMs[device.id].map { abs(currentBPM - $0) >= 1.0 } ?? true
             guard !uploading.contains(device.id),
-                  stateChanged || bpmChanged || Date().timeIntervalSince(lastUploads[device.id] ?? .distantPast) > 10 else { continue }
+                  stateChanged || bpmChanged || Date().timeIntervalSince(lastUploads[device.id] ?? .distantPast) > 4 else { continue }
             uploading.insert(device.id)
             let code = groupCode
             let existingSnapshot = familyDevices.first(where: { $0.id == device.id })
@@ -105,32 +106,29 @@ final class FamilyDeviceManager: ObservableObject {
                     let latestStatus = statuses[device.id]
                     let state = latestStatus?.lifeLoopState
                     let hasDeviceLocation = state.map { $0.latitude != 0 || $0.longitude != 0 } ?? false
-                    let online = latestStatus?.isConnected == true
+                    let isCurrentlyOnline = latestStatus?.isConnected == true
                     let rawLatitude = hasDeviceLocation ? state?.latitude ?? 0 : fallbackLatitude
                     let rawLongitude = hasDeviceLocation ? state?.longitude ?? 0 : fallbackLongitude
                     let latitude = rawLatitude != 0 ? rawLatitude : (existingSnapshot?.latitude ?? 0)
                     let longitude = rawLongitude != 0 ? rawLongitude : (existingSnapshot?.longitude ?? 0)
                     let hasValidLocation = sharesLocation && (latitude != 0 || longitude != 0)
-                    let currentDeviceState = state?.state ?? 0
-                    let liveBPM = state?.bpm ?? 0
-                    let bpmToUpload = liveBPM > 0 ? liveBPM : (existingSnapshot?.bpm ?? 0)
+                    let currentDeviceState = isCurrentlyOnline ? (state?.state ?? 0) : 0
+                    let liveBPM: Float = isCurrentlyOnline ? (state?.bpm ?? 0) : 0
                     let payload = FamilyTelemetryPayload(
                         groupCode: code,
                         deviceID: device.id,
                         displayName: device.name,
-                        bpm: bpmToUpload,
+                        bpm: liveBPM,
                         state: currentDeviceState,
                         latitude: hasValidLocation ? latitude : 0,
                         longitude: hasValidLocation ? longitude : 0,
                         isLocationShared: hasValidLocation,
-                        isOnline: online,
-                        lastUpdated: latestStatus?.lastUpdated ?? existingSnapshot?.lastUpdated ?? Date()
+                        isOnline: isCurrentlyOnline,
+                        lastUpdated: latestStatus?.lastUpdated ?? Date()
                     )
                     try await apiClient.uploadTelemetry(payload)
                     lastUploadedStates[device.id] = currentDeviceState
-                    if bpmToUpload > 0 {
-                        lastUploadedBPMs[device.id] = bpmToUpload
-                    }
+                    lastUploadedBPMs[device.id] = liveBPM
                 } catch { syncStatus = error.localizedDescription }
             }
         }
@@ -139,7 +137,7 @@ final class FamilyDeviceManager: ObservableObject {
     func refreshFamilyDevices(force: Bool = true) async {
         ensureCheckInSubscription()
         guard hasGroup, !isSyncing else { return }
-        if !force && Date().timeIntervalSince(lastRefresh ?? .distantPast) < 10 { return }
+        if !force && Date().timeIntervalSince(lastRefresh ?? .distantPast) < 3 { return }
         isSyncing = true
         defer { isSyncing = false; lastRefresh = Date() }
         do {
@@ -206,6 +204,8 @@ final class FamilyDeviceManager: ObservableObject {
     }
 
     func beginEmergencySession() {
+        activeAlert = nil
+        persistActiveAlert()
         pendingInput = nil
         emergencyError = nil
     }
@@ -213,7 +213,12 @@ final class FamilyDeviceManager: ObservableObject {
     func cancelMyOwnEmergency(deviceID: String?, displayName: String) async {
         guard let id = pendingInput?.alertID ?? activeAlert?.alertID else { return }
         do {
-            activeAlert = try await apiClient.cancelEmergency(alertID: id)
+            let canceled = try await apiClient.cancelEmergency(alertID: id)
+            guard canceled.status == "CANCELED" else {
+                emergencyError = "The service has not confirmed cancellation. Calls may already have started."
+                return
+            }
+            activeAlert = canceled
             persistActiveAlert()
             pendingInput = nil
             emergencyError = nil

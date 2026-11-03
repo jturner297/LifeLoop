@@ -19,6 +19,7 @@ class EMSTimerManager: ObservableObject {
     @Published var isCountingDown = false
     @Published var triggerReason: String = "EMERGENCY DETECTED"
     
+    private(set) var triggerDeviceID: String?
     var onImmediateTrigger: ((String) -> Void)?
     
     // Actual iOS timer object
@@ -31,13 +32,14 @@ class EMSTimerManager: ObservableObject {
     }
     
     // Timer countdown function
-    func startCountdown(reason: String) {
+    func startCountdown(reason: String, deviceID: String? = nil) {
         // Fall has been detected (isActive) but set the isAlertTriggered to false so the emergency protocol doesn't start immediately
         
-        guard !isCountingDown else { return }
+        guard !isCountingDown, !isActive, !isAlertTriggered else { return }
         
         //Store the message for the UI
         self.triggerReason = reason
+        triggerDeviceID = deviceID
         
         onImmediateTrigger?(reason)
         

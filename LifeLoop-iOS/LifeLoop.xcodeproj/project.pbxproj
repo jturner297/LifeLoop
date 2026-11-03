@@ -71,7 +71,6 @@
 		FB908D8C308BF0DB00C8F30C /* LoopNotifications.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoopNotifications.swift; sourceTree = "<group>"; };
 		FB908D8E308BF15D00C8F30C /* FamilyManagementViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FamilyManagementViews.swift; sourceTree = "<group>"; };
 		FB908D90308BF18900C8F30C /* LifeLoopBrand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LifeLoopBrand.swift; sourceTree = "<group>"; };
-		FB908D92308BF26000C8F30C /* AWS_SETUP.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = AWS_SETUP.md; sourceTree = "<group>"; };
 		FBE8927330896C88008C5B7A /* UserProfile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserProfile.swift; sourceTree = "<group>"; };
 		FBE8927530896C88008C5B7A /* LoopStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoopStyle.swift; sourceTree = "<group>"; };
 		FBE8927730896E07008C5B7A /* MemberEventsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemberEventsView.swift; sourceTree = "<group>"; };
@@ -187,7 +186,6 @@
 				D10000000000000000000002 /* LifeLoop */,
 				FB56C60C3061FDE700239815 /* Reexports.swift */,
 				FB56C60D3061FDE800239815 /* CoreLocationReexport.swift */,
-				FB908D92308BF26000C8F30C /* AWS_SETUP.md */,
 				D10000000000000000000005 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -454,7 +452,7 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = GTR6K4S275;
+				DEVELOPMENT_TEAM = WY6STY3DZL;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
@@ -478,7 +476,7 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = GTR6K4S275;
+				DEVELOPMENT_TEAM = WY6STY3DZL;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
