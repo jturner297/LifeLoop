@@ -187,8 +187,10 @@ struct MemberListSection: View {
     }
 
     private func latestBPM(for member: FamilyDeviceSnapshot) -> Float {
-        let localBPM = bleMonitor.deviceStatuses[member.id]?.lifeLoopState.bpm ?? 0
-        return localBPM > 0 ? localBPM : member.bpm
+        if let localStatus = bleMonitor.deviceStatuses[member.id], localStatus.isConnected {
+            return localStatus.lifeLoopState.bpm
+        }
+        return member.isOnline ? member.bpm : 0
     }
 
     var body: some View {
@@ -209,7 +211,7 @@ struct MemberListSection: View {
                         VStack(alignment: .leading, spacing: 5) {
                             Text(member.ownerName.isEmpty ? member.displayName : member.ownerName).font(.headline)
                             Text(member.displayName).font(.caption).foregroundStyle(.secondary)
-                            Text(member.isOnline || bpm > 0 ? "\(bpmLabel) · \(member.state == 0 ? "Normal" : member.state == 5 ? "Check-in pending" : "Needs attention")" : "Offline")
+                            Text(member.isOnline ? "\(bpmLabel) · \(member.state == 0 ? "Normal" : member.state == 5 ? "Check-in pending" : "Needs attention")" : "Offline")
                                 .font(.subheadline).foregroundStyle(member.isOnline ? LoopStyle.green : .secondary)
                         }
                         Spacer()
@@ -247,8 +249,10 @@ struct MemberInfoView: View {
     private var member: FamilyDeviceSnapshot? { manager.familyDevices.first { $0.id == memberID } }
 
     private func latestBPM(for member: FamilyDeviceSnapshot) -> Float {
-        let localBPM = bleMonitor.deviceStatuses[member.id]?.lifeLoopState.bpm ?? 0
-        return localBPM > 0 ? localBPM : member.bpm
+        if let localStatus = bleMonitor.deviceStatuses[member.id], localStatus.isConnected {
+            return localStatus.lifeLoopState.bpm
+        }
+        return member.isOnline ? member.bpm : 0
     }
 
     private func streetAddressText(for member: FamilyDeviceSnapshot) -> String {
@@ -341,7 +345,7 @@ struct MemberInfoView: View {
                     if let member {
                         manager.resolveAddress(for: member)
                     }
-                    try? await Task.sleep(for: .seconds(4))
+                    try? await Task.sleep(for: .seconds(2))
                 }
             }
             .refreshable { await manager.refreshFamilyDevices() }

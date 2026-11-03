@@ -132,7 +132,7 @@ void resetHR() {
 float lastSentBPM = -100.0;
 FallDetection lastSentFallState = Normal;
 unsigned long lastKeepAliveTime = 0;
-const unsigned long KEEP_ALIVE_INTERVAL = 15000;
+const unsigned long KEEP_ALIVE_INTERVAL = 3000;
 
 // ── Setup ─────────────────────────────────────────────────────────────────────
 void setup() {
@@ -451,7 +451,7 @@ void loop() {
 
   // 4. Edge-Filtered BLE Transmission
   bool stateChanged = (fallState != lastSentFallState);
-  bool bpmChanged = (abs(currentBPM - lastSentBPM) >= 3.0);
+  bool bpmChanged = (abs(currentBPM - lastSentBPM) >= 1.0);
   bool keepAlive = (now - lastKeepAliveTime >= KEEP_ALIVE_INTERVAL);
 
   if (stateChanged || bpmChanged || keepAlive) {

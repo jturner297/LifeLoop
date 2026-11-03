@@ -135,6 +135,7 @@ final class BLEMonitor: NSObject, ObservableObject {
                 updateStatus(for: id) { updatedStatus in
                     updatedStatus.isConnected = false
                     updatedStatus.isConnecting = false
+                    updatedStatus.lifeLoopState.bpm = 0
                 }
                 connectedPeripherals.removeValue(forKey: id)
                 txCharacteristics.removeValue(forKey: id)
@@ -185,10 +186,16 @@ final class BLEMonitor: NSObject, ObservableObject {
         
         updateStatus(for: deviceID) { status in
             let previousState = status.lifeLoopState.state
+            let previousBPM = status.lifeLoopState.bpm
             status.lastPayload = cleaned
             status.lastUpdated = Date()
             if let newState {
                 status.lifeLoopState = newState
+                if abs(newState.bpm - previousBPM) >= 1.0 || newState.state != previousState {
+                    DispatchQueue.main.async {
+                        self.pingAckSequence += 1
+                    }
+                }
                 let hasFallen = newState.state == 4
                 let isPing = newState.state == 5
                 let isNormal = newState.state == 0
@@ -313,9 +320,8 @@ final class BLEMonitor: NSObject, ObservableObject {
 
         let values = pairs.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
         guard values.count >= 4 else { return nil }
-        let parsedBPM = Float(values[0]) ?? fallback.bpm
         return LifeLoopState(
-            bpm: parsedBPM > 0 ? parsedBPM : fallback.bpm,
+            bpm: Float(values[0]) ?? fallback.bpm,
             state: Int(values[1]) ?? fallback.state,
             battery: fallback.battery,
             latitude: Double(values[2]) ?? fallback.latitude,
@@ -332,8 +338,7 @@ final class BLEMonitor: NSObject, ObservableObject {
             }
             return nil
         }
-        let parsedBPM = doubleValue(["bpm", "heartrate", "hr"]).map(Float.init) ?? fallback.bpm
-        let bpm = parsedBPM > 0 ? parsedBPM : fallback.bpm
+        let bpm = doubleValue(["bpm", "heartrate", "hr"]).map(Float.init) ?? fallback.bpm
         let state = doubleValue(["state"]).map(Int.init) ?? fallback.state
         let latitude = doubleValue(["latitude", "lat"]) ?? fallback.latitude
         let longitude = doubleValue(["longitude", "lon", "lng"]) ?? fallback.longitude
@@ -429,6 +434,7 @@ extension BLEMonitor: CBCentralManagerDelegate {
         updateStatus(for: id) { status in
             status.isConnected = false
             status.isConnecting = false
+            status.lifeLoopState.bpm = 0
         }
         connectedPeripherals.removeValue(forKey: id)
         txCharacteristics.removeValue(forKey: id)
