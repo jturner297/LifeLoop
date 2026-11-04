@@ -39,9 +39,9 @@
         "other_text_thickness": 0.15,
         "other_text_upright": false,
         "pads": {
-          "drill": 1.1,
-          "height": 1.3,
-          "width": 2.5
+          "drill": 0.0,
+          "height": 1.0,
+          "width": 1.9
         },
         "silk_line_width": 0.1,
         "silk_text_italic": false,
@@ -526,7 +526,7 @@
       "netlist": "",
       "plot": "",
       "specctra_dsn": "",
-      "step": "",
+      "step": "LLV2.step",
       "vrml": ""
     },
     "page_layout_descr_file": ""
@@ -661,7 +661,7 @@
         "uuid": "7afe2502-98d3-4f62-a31c-802fb5adb185"
       }
     ],
-    "used_designators": "U1,U3,M1,#PWR9-14,D1-2,Q1-3,R1-4",
+    "used_designators": "U1,U3,M1,#PWR9-14,D1-2,Q1-3,R1-4,SW2",
     "variants": []
   },
   "sheets": [

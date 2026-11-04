@@ -7,9 +7,15 @@
 // ── Hardware Definitions ──────────────────────────────────────────────────────
 // NOTE: If testing on the PCB from the schematic where SW1=D3 and U3=D1, 
 // swap BUTTON_PIN to D3 and BUZZER_PIN to D1.
-#define BUTTON_PIN D1
+#define BUTTON_PIN D3
 #define MOTOR_PIN  D2         // MOSFET Gate for Vibration Motor
 #define BUZZER_PIN A3         // Passive Buzzer Pin
+
+// ── Battery Settings ──────────────────────────────────────────────────────────
+#define ADC_MAX             4095.0f
+#define ADC_REF_VOLTS       3.3f      // AR_INTERNAL_3_0
+#define DIVIDER_RATIO       3.033f    // (1M + 510k) / 510k, tweak with a multimeter
+const unsigned long BATTERY_INTERVAL = 30000;   // read battery every 30 s
 
 // ── BLE Definitions ───────────────────────────────────────────────────────────
 #define SERVICE_UUID           "6E400001-B5A3-F393-E0A9-E50E24DCCA9E"
@@ -39,7 +45,7 @@ const unsigned long STILLNESS_EMERGENCY_TH = 6000;
 const unsigned long CANCEL_HOLD_TIME       = 2000; 
 
 enum FallDetection { Normal, Free_Falling, Impact, Recovering, Emergency };
-FallDetection fallState = Normal;
+FallDetection fallState = Emergency;
 
 unsigned long fallStartTime = 0;
 unsigned long impactTime = 0;
@@ -52,6 +58,43 @@ const unsigned long MPU_READ_INTERVAL = 20;
 
 float magnitude(float x, float y, float z) {
   return sqrt(x*x + y*y + z*z);
+}
+
+// ── Battery ───────────────────────────────────────────────────────────────────
+int batteryPct = 0;
+unsigned long lastBatteryTime = 0;
+
+float readBatteryVoltage() {
+  digitalWrite(PIN_VBAT_ENABLE, LOW);    // enable divider (active LOW)
+  delay(10);
+
+  uint32_t sum = 0;
+  for (int i = 0; i < 16; i++) {
+    sum += analogRead(PIN_VBAT);
+    delayMicroseconds(500);
+  }
+  digitalWrite(PIN_VBAT_ENABLE, HIGH);   // disable divider to save power
+
+  float raw = sum / 16.0f;
+  return raw * (ADC_REF_VOLTS / ADC_MAX) * DIVIDER_RATIO;
+}
+
+// Approximate single-cell LiPo discharge curve (voltage -> %)
+int batteryPercent(float v) {
+  static const float volts[] = {3.30, 3.50, 3.60, 3.70, 3.75, 3.80, 3.90, 4.00, 4.10, 4.20};
+  static const int   pct[]   = {   0,    5,   10,   20,   30,   40,   60,   75,   90,  100};
+  const int n = sizeof(volts) / sizeof(volts[0]);
+
+  if (v <= volts[0])   return 0;
+  if (v >= volts[n-1]) return 100;
+
+  for (int i = 1; i < n; i++) {
+    if (v <= volts[i]) {
+      float t = (v - volts[i-1]) / (volts[i] - volts[i-1]);
+      return (int)(pct[i-1] + t * (pct[i] - pct[i-1]));
+    }
+  }
+  return 0;
 }
 
 // ── Heart Rate Variables (DSP) ────────────────────────────────────────────────
@@ -121,12 +164,15 @@ void resetHR() {
 
 // ── Edge Filtering Variables ──────────────────────────────────────────────────
 float lastSentBPM = -100.0;
+int lastSentBattery = -100;
 FallDetection lastSentFallState = Normal;
 unsigned long lastKeepAliveTime = 0;
 const unsigned long KEEP_ALIVE_INTERVAL = 15000;
 
 // ── Setup ─────────────────────────────────────────────────────────────────────
 void setup() {
+  Serial.begin(115200);
+
   pinMode(LED_RED, OUTPUT);
   pinMode(LED_GREEN, OUTPUT);
   pinMode(LED_BLUE, OUTPUT);
@@ -137,12 +183,19 @@ void setup() {
   pinMode(BUTTON_PIN, INPUT_PULLUP);
   
   // Initialize Vibration Motor (Active-High via N-Channel MOSFET)
-  pinMode(MOTOR_PIN, OUTPUT);
+  pinMode(MOTOR_PIN, INPUT);
   digitalWrite(MOTOR_PIN, LOW); // Ensure motor starts OFF
 
   // Initialize Buzzer
   pinMode(BUZZER_PIN, OUTPUT);
   noTone(BUZZER_PIN); // Ensure it starts quiet using noTone()
+
+  // Battery ADC setup
+  pinMode(PIN_VBAT_ENABLE, OUTPUT);
+  digitalWrite(PIN_VBAT_ENABLE, HIGH);   // divider off by default
+  analogReadResolution(12);             
+  batteryPct = batteryPercent(readBatteryVoltage());
+  lastBatteryTime = millis();
 
   Wire.begin();
   myIMU.begin();
@@ -178,6 +231,19 @@ void setup() {
 void loop() {
   BLEDevice central = BLE.central();
   unsigned long now = millis();
+
+  // 0. Periodic battery reading
+  if (now - lastBatteryTime >= BATTERY_INTERVAL) {
+    lastBatteryTime = now;
+    float v = readBatteryVoltage();
+    batteryPct = batteryPercent(v);
+
+    Serial.print("Battery: ");
+    Serial.print(v, 2);
+    Serial.print(" V  ");
+    Serial.print(batteryPct);
+    Serial.println("%");
+  }
 
   // 1. Process Heart Rate
   if (now - lastHrReadTime >= HR_READ_INTERVAL) {
@@ -350,17 +416,19 @@ void loop() {
   }
 
   // 4. Edge-Filtered BLE Transmission
-  bool stateChanged = (fallState != lastSentFallState);
-  bool bpmChanged = (abs(currentBPM - lastSentBPM) >= 3.0);
-  bool keepAlive = (now - lastKeepAliveTime >= KEEP_ALIVE_INTERVAL);
+  bool stateChanged   = (fallState != lastSentFallState);
+  bool bpmChanged     = (abs(currentBPM - lastSentBPM) >= 3.0);
+  bool batteryChanged = (abs(batteryPct - lastSentBattery) >= 2);
+  bool keepAlive      = (now - lastKeepAliveTime >= KEEP_ALIVE_INTERVAL);
 
-  if (stateChanged || bpmChanged || keepAlive) {
+  if (stateChanged || bpmChanged || batteryChanged || keepAlive) {
     lastKeepAliveTime = now;
     lastSentFallState = fallState;
     lastSentBPM = currentBPM;
+    lastSentBattery = batteryPct;
     
     char msg[32];
-    snprintf(msg, sizeof(msg), "BPM:%.1f|State:%d\n", currentBPM, fallState);
+    snprintf(msg, sizeof(msg), "BPM:%.1f|State:%d|Bat:%d\n", currentBPM, fallState, batteryPct);
 
     if (central && txCharacteristic.subscribed()) {
       txCharacteristic.writeValue(msg);
