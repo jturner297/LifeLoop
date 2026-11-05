@@ -204,6 +204,8 @@ final class FamilyDeviceManager: ObservableObject {
     }
 
     func beginEmergencySession() {
+        activeAlert = nil
+        persistActiveAlert()
         pendingInput = nil
         emergencyError = nil
     }
@@ -211,7 +213,12 @@ final class FamilyDeviceManager: ObservableObject {
     func cancelMyOwnEmergency(deviceID: String?, displayName: String) async {
         guard let id = pendingInput?.alertID ?? activeAlert?.alertID else { return }
         do {
-            activeAlert = try await apiClient.cancelEmergency(alertID: id)
+            let canceled = try await apiClient.cancelEmergency(alertID: id)
+            guard canceled.status == "CANCELED" else {
+                emergencyError = "The service has not confirmed cancellation. Calls may already have started."
+                return
+            }
+            activeAlert = canceled
             persistActiveAlert()
             pendingInput = nil
             emergencyError = nil

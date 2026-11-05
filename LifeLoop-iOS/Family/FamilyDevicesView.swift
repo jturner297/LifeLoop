@@ -105,6 +105,10 @@ struct GroupDetailView: View {
     let group: LoopGroup
     @ObservedObject var manager: FamilyDeviceManager
     @State private var leave = false
+    @State private var renaming = false
+    @State private var editedName = ""
+
+    private var groupName: String { profile.groups.first { $0.id == group.id }?.name ?? group.name }
     @State private var error: String?
 
     var body: some View {
@@ -142,7 +146,21 @@ struct GroupDetailView: View {
                 }
                 if let error { Text(error).foregroundStyle(.red) }
             }.padding(24).frame(maxWidth: 720)
-        }.loopPage().navigationTitle(group.name)
+        }.loopPage().navigationTitle(groupName)
+            .toolbar {
+                Button("Rename group", systemImage: "pencil") {
+                    editedName = groupName
+                    renaming = true
+                }
+            }
+            .alert("Rename group", isPresented: $renaming) {
+                TextField("Group name", text: $editedName)
+                Button("Save") { profile.renameGroup(group, name: editedName) }
+                    .disabled(editedName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("This nickname is saved on this phone.")
+            }
             .task { await manager.refreshFamilyDevices() }
             .refreshable { await manager.refreshFamilyDevices() }
             .confirmationDialog("Leave this family? Your shared contacts and devices will be removed from this family.", isPresented: $leave, titleVisibility: .visible) {

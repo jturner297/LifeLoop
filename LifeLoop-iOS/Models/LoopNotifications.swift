@@ -45,7 +45,7 @@ final class LoopNotifications: NSObject, UNUserNotificationCenterDelegate {
             let request = UNNotificationRequest(identifier: "alert.\(alert.alertID).\(alert.status)", content: content, trigger: nil)
             UNUserNotificationCenter.current().add(request)
         }
-        if seen.count > 500 { seen = Dictionary(uniqueKeysWithValues: alerts.map { ($0.id, $0.status) }) }
+        if seen.count > 500 { seen = Dictionary(alerts.map { ($0.id, $0.status) }, uniquingKeysWith: { _, latest in latest }) }
         UserDefaults.standard.set(seen, forKey: "notifications.alertStates")
     }
 
