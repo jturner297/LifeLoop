@@ -69,15 +69,32 @@ struct ContentView: View {
             guard timer.triggerDeviceID == nil || timer.triggerDeviceID == request.deviceID else { return }
             closeEmergency()
         }
-        .onChange(of: notifications.selectedGroupCode) { _, _ in
-            routePendingNotification()
+        .onChange(of: notifications.selectedGroupCode) { _, newValue in
+            guard newValue != nil else { return }
+            Task { @MainActor in
+                routePendingNotification()
+            }
         }
         .sheet(item: $notificationGroup) { group in
-            if let manager = profile.managers[group.id] {
-                NavigationStack { GroupDetailView(group: group, manager: manager) }
-                    .environment(profile)
-                    .environmentObject(bleMonitor)
+            NavigationStack {
+                if let manager = profile.managers[group.id] {
+                    GroupDetailView(group: group, manager: manager)
+                        .toolbar {
+                            ToolbarItem(placement: .cancellationAction) {
+                                Button("Done") { notificationGroup = nil }
+                            }
+                        }
+                } else {
+                    ProgressView("Loading family…")
+                        .toolbar {
+                            ToolbarItem(placement: .cancellationAction) {
+                                Button("Done") { notificationGroup = nil }
+                            }
+                        }
+                }
             }
+            .environment(profile)
+            .environmentObject(bleMonitor)
         }
         .task {
             while !Task.isCancelled {
@@ -104,12 +121,17 @@ struct ContentView: View {
         // Keep cold-launch taps pending until membership loads and other presentations finish.
         guard let code = notifications.selectedGroupCode,
               !timer.isActive, !timer.isAlertTriggered,
-              !addDevice, selectedDevice == nil, notificationGroup == nil,
+              !addDevice, selectedDevice == nil,
               let group = profile.groups.first(where: { $0.id == code }),
-              profile.managers[group.id] != nil else { return }
-        tab = 2
-        notificationGroup = group
+              let manager = profile.managers[group.id] else { return }
         notifications.selectedGroupCode = nil
+        tab = 2
+        if notificationGroup?.id != group.id {
+            notificationGroup = group
+        }
+        Task {
+            await manager.refreshFamilyDevices(force: true)
+        }
     }
 
     private var home: some View {
@@ -283,12 +305,18 @@ struct ContentView: View {
     }
 
     private func closeEmergency() {
-        guard !isClosingEmergency else { return }
-        isClosingEmergency = true
+        emergencySessionID = UUID()
         let delivery = emergencyTask
         let recipients = emergencyRecipients
         let deviceID = emergencyDeviceID
         let ownerName = profile.name
+        bleMonitor.sendCancelCommand()
+        timer.cancelCountdown()
+        tab = 0
+        filter = 0
+        search = ""
+        guard !isClosingEmergency else { return }
+        isClosingEmergency = true
         // Send cancellation after the in-flight alert to preserve ordering.
         Task {
             await delivery?.value
@@ -300,13 +328,6 @@ struct ContentView: View {
                 cancellationMessage = failures.joined(separator: "\n")
                 emergencyDeliveryTitle = "Cancellation unconfirmed"
                 emergencyDeliveryMessage = cancellationMessage + "\nThe alert remains active. Try canceling again."
-            } else {
-                emergencySessionID = UUID()
-                bleMonitor.sendCancelCommand()
-                timer.cancelCountdown()
-                tab = 0
-                filter = 0
-                search = ""
             }
             isClosingEmergency = false
         }

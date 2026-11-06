@@ -58,22 +58,25 @@ float magnitude(float x, float y, float z) {
   return sqrt(x*x + y*y + z*z);
 }
 
-// ── Heart Rate Variables (DSP & Standby) ──────────────────────────────────────
+// ── Heart Rate Variables (DSP) ────────────────────────────────────────────────
 unsigned long lastHrReadTime = 0;
-const unsigned long HR_READ_INTERVAL = 5; 
+// 10 ms (100 Hz) matches sampleRate=200 / sampleAverage=2 (100 Hz FIFO output)
+const unsigned long HR_READ_INTERVAL = 10; 
 
-bool hrStandbyMode = false;
+bool wasOnWrist = false;
+unsigned long onWristStartTime = 0;
 unsigned long offWristStartTime = 0;
-const unsigned long OFF_WRIST_TIMEOUT = 3000;      
-const unsigned long STANDBY_POLL_INTERVAL = 2000;  
+const long ON_WRIST_IR_THRESHOLD = 30000;
+const unsigned long ON_WRIST_SETTLE_MS = 500;
+const unsigned long OFF_WRIST_CLEAR_MS = 500;
 
-#define MA_SIZE 16
+#define MA_SIZE 8
 long maBuffer[MA_SIZE] = {0};
 int maIndex = 0;
 long maSum = 0;
 float dcPrev = 0;
 float lastFiltered = 0;
-long lastBeatTime = 0;
+unsigned long lastBeatTime = 0;
 bool descending = false;
 float troughValue = 0;
 
@@ -81,9 +84,9 @@ float troughValue = 0;
 float troughHistory[TROUGH_HISTORY] = {0};
 int troughHistIndex = 0;
 int troughHistCount = 0;
-float adaptiveThreshold = -40;
+float adaptiveThreshold = -8.0f;
 
-#define BPM_BUFFER_SIZE 6
+#define BPM_BUFFER_SIZE 4
 float bpmBuffer[BPM_BUFFER_SIZE] = {0};
 int bpmIndex = 0;
 int bpmCount = 0;
@@ -98,21 +101,43 @@ long movingAverage(long newVal) {
 }
 
 float dcRemove(float raw) {
-  dcPrev = 0.95f * dcPrev + 0.05f * raw;
+  // At 100 Hz, alpha=0.97 sets high-pass cutoff to ~0.48 Hz (29 BPM)
+  dcPrev = 0.97f * dcPrev + 0.03f * raw;
   return raw - dcPrev;
 }
 
+void seedHRFilter(long initialIR) {
+  maSum = 0;
+  for (int i = 0; i < MA_SIZE; i++) {
+    maBuffer[i] = initialIR;
+    maSum += initialIR;
+  }
+  maIndex = 0;
+  dcPrev = (float)initialIR;
+  lastFiltered = 0;
+  descending = false;
+  troughValue = 0;
+  troughHistIndex = 0;
+  troughHistCount = 0;
+  adaptiveThreshold = -8.0f;
+  for (int i = 0; i < TROUGH_HISTORY; i++) troughHistory[i] = 0;
+}
+
 void updateThreshold(float newTroughDepth) {
-  if (newTroughDepth < -500) return;
-  troughHistory[troughHistIndex] = newTroughDepth;
+  // Clamp extreme mechanical placement spikes so adaptiveThreshold never locks out steady pulses
+  float clampedDepth = constrain(newTroughDepth, -100.0f, -4.0f);
+  troughHistory[troughHistIndex] = clampedDepth;
   troughHistIndex = (troughHistIndex + 1) % TROUGH_HISTORY;
   if (troughHistCount < TROUGH_HISTORY) troughHistCount++;
   float sum = 0;
   for (int i = 0; i < troughHistCount; i++) sum += troughHistory[i];
-  adaptiveThreshold = (sum / troughHistCount) * 0.6;
+  adaptiveThreshold = constrain((sum / troughHistCount) * 0.50f, -60.0f, -4.0f);
 }
 
 void addBPM(float newBPM) {
+  if (bpmCount > 0 && fabs(newBPM - currentBPM) > 35.0f) {
+    newBPM = 0.65f * currentBPM + 0.35f * newBPM;
+  }
   bpmBuffer[bpmIndex] = newBPM;
   bpmIndex = (bpmIndex + 1) % BPM_BUFFER_SIZE;
   if (bpmCount < BPM_BUFFER_SIZE) bpmCount++;
@@ -122,10 +147,16 @@ void addBPM(float newBPM) {
 }
 
 void resetHR() {
+  wasOnWrist = false;
+  onWristStartTime = 0;
+  lastBeatTime = 0;
   lastFiltered = 0; dcPrev = 0; descending = false; troughValue = 0;
-  troughHistIndex = 0; troughHistCount = 0; adaptiveThreshold = -40;
-  currentBPM = 0;
+  maIndex = 0; maSum = 0;
+  for (int i = 0; i < MA_SIZE; i++) maBuffer[i] = 0;
+  troughHistIndex = 0; troughHistCount = 0; adaptiveThreshold = -8.0f;
+  bpmIndex = 0; bpmCount = 0; currentBPM = 0;
   for (int i = 0; i < TROUGH_HISTORY; i++) troughHistory[i] = 0;
+  for (int i = 0; i < BPM_BUFFER_SIZE; i++) bpmBuffer[i] = 0;
 }
 
 // ── Edge Filtering Variables ──────────────────────────────────────────────────
@@ -157,8 +188,8 @@ void setup() {
   myIMU.begin();
 
   if (particleSensor.begin(Wire, I2C_SPEED_FAST)) {
-    // ledMode = 2 enables Red + IR (ledMode = 1 is Red-only, which disables getIR())
-    particleSensor.setup(60, 4, 2, 400, 411, 16384);
+    // ledBrightness=60, sampleAverage=2, ledMode=2 (Red+IR), sampleRate=200 (100Hz averaged), pulseWidth=411, adcRange=8192
+    particleSensor.setup(60, 2, 2, 200, 411, 8192);
   }
   
   if (!BLE.begin()) {
@@ -198,61 +229,70 @@ void loop() {
   BLEDevice central = BLE.central();
   unsigned long now = millis();
 
-  unsigned long currentHrInterval = hrStandbyMode ? STANDBY_POLL_INTERVAL : HR_READ_INTERVAL;
-
-  if (now - lastHrReadTime >= currentHrInterval) {
+  if (now - lastHrReadTime >= HR_READ_INTERVAL) {
     lastHrReadTime = now;
+    long irRaw = particleSensor.getIR();
     
-    if (hrStandbyMode) {
-      particleSensor.wakeUp();
-      delay(2); 
-      long irRaw = particleSensor.getIR();
-      
-      if (irRaw >= 80000) {
-        hrStandbyMode = false;
-        offWristStartTime = 0;
-      } else {
-        particleSensor.shutDown();
+    if (irRaw < ON_WRIST_IR_THRESHOLD) {
+      if (offWristStartTime == 0) {
+        offWristStartTime = now;
+      } else if (now - offWristStartTime >= OFF_WRIST_CLEAR_MS) {
+        resetHR();
       }
     } else {
-      long irRaw = particleSensor.getIR();
-      
-      if (irRaw < 80000) {
-        if (offWristStartTime == 0) {
-          offWristStartTime = now;
-        } else if (now - offWristStartTime >= OFF_WRIST_TIMEOUT) {
-          hrStandbyMode = true;
-          particleSensor.shutDown();
-          resetHR();
-        }
-      } else {
-        offWristStartTime = 0;
-        long smoothed  = movingAverage(irRaw);
-        float filtered = dcRemove((float)smoothed);
-        
-        if (filtered < lastFiltered) {
-          descending = true;
-          if (filtered < troughValue) troughValue = filtered;
+      offWristStartTime = 0;
+      if (!wasOnWrist) {
+        wasOnWrist = true;
+        onWristStartTime = now;
+        seedHRFilter(irRaw);
+      }
+
+      long smoothed  = movingAverage(irRaw);
+      float filtered = dcRemove((float)smoothed);
+
+      // Re-center baseline quickly if finger pressure shifts sharply
+      if (fabs(filtered) > 350.0f) {
+        dcPrev = 0.80f * dcPrev + 0.20f * (float)smoothed;
+        filtered = (float)smoothed - dcPrev;
+        descending = false;
+        troughValue = 0;
+      }
+
+      // Allow initial finger placement pressure to settle before detecting beats
+      if (now - onWristStartTime >= ON_WRIST_SETTLE_MS) {
+        // Decay adaptiveThreshold upward if no beats crossed recently so it can never get stuck
+        if (lastBeatTime > 0 && (now - lastBeatTime) > 1200) {
+          adaptiveThreshold *= 0.97f;
+          if (adaptiveThreshold > -4.0f) adaptiveThreshold = -4.0f;
         }
 
-        if (descending && filtered > lastFiltered) {
+        if (filtered < 0.0f) {
+          if (filtered < lastFiltered) {
+            descending = true;
+          }
+          if (filtered < troughValue) {
+            troughValue = filtered;
+          }
+        }
+
+        // Evaluate trough once the pulse wave rebounds past 40% of trough depth
+        if (descending && filtered > lastFiltered && filtered > (troughValue * 0.4f)) {
           if (troughValue < adaptiveThreshold) {
-            long delta = now - lastBeatTime;
-            if (delta > 400 && delta < 2000) {
-              addBPM(60000.0 / delta);
+            unsigned long delta = now - lastBeatTime;
+            if (lastBeatTime > 0 && delta >= 330 && delta <= 1600) {
+              addBPM(60000.0f / (float)delta);
               lastBeatTime = now;
               updateThreshold(troughValue);
-            } else if (delta >= 2000) {
+            } else if (lastBeatTime == 0 || delta > 1600) {
               lastBeatTime = now;
-              bpmCount = 0; bpmIndex = 0;
               updateThreshold(troughValue);
             }
           }
           descending = false;
           troughValue = 0;
         }
-        lastFiltered = filtered;
       }
+      lastFiltered = filtered;
     }
   }
 
@@ -436,6 +476,18 @@ void loop() {
       ledRedState = true;
       noTone(BUZZER_PIN);
       digitalWrite(LED_BLUE, LOW);
+      digitalWrite(LED_RED, HIGH);
+      digitalWrite(LED_GREEN, HIGH);
+    } else if (command == "SOS") {
+      fallState = Emergency;
+      buttonPressStartTime = 0;
+      imuBufferIndex = 0;
+      ledRedState = false;
+      lastBlinkTime = now;
+      digitalWrite(LED_BLUE, HIGH);
+      digitalWrite(LED_GREEN, HIGH);
+      digitalWrite(LED_RED, LOW);
+      tone(BUZZER_PIN, 3000);
     } else if (command == "PING") {
       fallState = Ping;
       lastSentFallState = Normal;

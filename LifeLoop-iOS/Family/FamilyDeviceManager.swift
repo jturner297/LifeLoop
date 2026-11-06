@@ -26,10 +26,14 @@ final class FamilyDeviceManager: ObservableObject {
 
     private let apiClient: FamilyAPIClient
     private let linkedKey: String
+    private let checkInsKey: String
     private var lastRefresh: Date?
     private var lastUploads: [String: Date] = [:]
     private var lastUploadedStates: [String: Int] = [:]
     private var lastUploadedBPMs: [String: Float] = [:]
+    private var connectedInSession: Set<String> = []
+    private var pendingCheckInSentAt: [String: Date] = [:]
+    private var observedHardwarePingDevices: Set<String> = []
     private var uploading: Set<String> = []
     private var geocodingIDs: Set<String> = []
     private var lastLocations: [String: CLLocation] = [:]
@@ -43,9 +47,17 @@ final class FamilyDeviceManager: ObservableObject {
         let code = groupCode ?? ""
         self.groupCode = code
         linkedKey = "com.lifeloop.family.linkedDeviceIDs." + code
+        checkInsKey = "checkin.active." + code
         linkedDeviceIDs = Set(UserDefaults.standard.stringArray(forKey: linkedKey) ?? [])
         if let data = UserDefaults.standard.data(forKey: "emergency.active." + code) {
             activeAlert = try? JSONDecoder().decode(CloudAlert.self, from: data)
+        }
+        if let data = UserDefaults.standard.data(forKey: checkInsKey),
+           let savedCheckIns = try? JSONDecoder().decode([String: CloudCheckIn].self, from: data) {
+            activeCheckIns = savedCheckIns
+            for checkIn in savedCheckIns.values {
+                handledCheckInIDs.insert(checkIn.checkInID)
+            }
         }
         NotificationCenter.default.addObserver(
             forName: .lifeLoopPingAcknowledged,
@@ -89,7 +101,16 @@ final class FamilyDeviceManager: ObservableObject {
         for device in devices where linkedDeviceIDs.contains(device.id) {
             let status = statuses[device.id]
             let online = status?.isConnected == true
-            let currentState = online ? (status?.lifeLoopState.state ?? 0) : 0
+            if online {
+                connectedInSession.insert(device.id)
+            } else {
+                // Only upload an offline transition once if this phone was previously connected;
+                // never let an unconnected phone repeatedly overwrite the wearer's live state/BPM.
+                guard connectedInSession.remove(device.id) != nil else { continue }
+            }
+            let rawState = online ? (status?.lifeLoopState.state ?? 0) : 0
+            let pendingPingWindow = Date().timeIntervalSince(pendingCheckInSentAt[device.id] ?? .distantPast) < 8
+            let currentState = (online && rawState == 0 && activeCheckIns[device.id]?.status == "PENDING" && pendingPingWindow) ? 5 : rawState
             let currentBPM: Float = online ? (status?.lifeLoopState.bpm ?? 0) : 0
             let stateChanged = lastUploadedStates[device.id] != currentState
             let bpmChanged = lastUploadedBPMs[device.id].map { abs(currentBPM - $0) >= 1.0 } ?? true
@@ -112,7 +133,9 @@ final class FamilyDeviceManager: ObservableObject {
                     let latitude = rawLatitude != 0 ? rawLatitude : (existingSnapshot?.latitude ?? 0)
                     let longitude = rawLongitude != 0 ? rawLongitude : (existingSnapshot?.longitude ?? 0)
                     let hasValidLocation = sharesLocation && (latitude != 0 || longitude != 0)
-                    let currentDeviceState = isCurrentlyOnline ? (state?.state ?? 0) : 0
+                    let latestRawState = isCurrentlyOnline ? (state?.state ?? 0) : 0
+                    let stillInPingWindow = Date().timeIntervalSince(pendingCheckInSentAt[device.id] ?? .distantPast) < 8
+                    let currentDeviceState = (isCurrentlyOnline && latestRawState == 0 && activeCheckIns[device.id]?.status == "PENDING" && stillInPingWindow) ? 5 : latestRawState
                     let liveBPM: Float = isCurrentlyOnline ? (state?.bpm ?? 0) : 0
                     let payload = FamilyTelemetryPayload(
                         groupCode: code,
@@ -141,14 +164,58 @@ final class FamilyDeviceManager: ObservableObject {
         isSyncing = true
         defer { isSyncing = false; lastRefresh = Date() }
         do {
-            familyDevices = try await apiClient.fetchFamilyDevices(groupCode: groupCode)
+            var fetchedDevices = try await apiClient.fetchFamilyDevices(groupCode: groupCode)
+            var checkInsChanged = false
+            for index in fetchedDevices.indices {
+                let device = fetchedDevices[index]
+                if device.state == 5 {
+                    observedHardwarePingDevices.insert(device.id)
+                    if activeCheckIns[device.id]?.status != "PENDING" {
+                        activeCheckIns[device.id] = CloudCheckIn(
+                            checkInID: activeCheckIns[device.id]?.checkInID ?? UUID().uuidString,
+                            groupCode: groupCode,
+                            targetDeviceID: device.id,
+                            initiatorName: activeCheckIns[device.id]?.initiatorName ?? "Family member",
+                            status: "PENDING",
+                            createdAt: activeCheckIns[device.id]?.createdAt ?? ISO8601DateFormatter().string(from: Date()),
+                            resolvedAt: nil
+                        )
+                        checkInsChanged = true
+                    }
+                } else if let checkIn = activeCheckIns[device.id], checkIn.status == "PENDING" {
+                    if observedHardwarePingDevices.contains(device.id) && device.state == 0 {
+                        observedHardwarePingDevices.remove(device.id)
+                        activeCheckIns[device.id] = CloudCheckIn(
+                            checkInID: checkIn.checkInID,
+                            groupCode: checkIn.groupCode,
+                            targetDeviceID: checkIn.targetDeviceID,
+                            initiatorName: checkIn.initiatorName,
+                            status: "SAFE",
+                            createdAt: checkIn.createdAt,
+                            resolvedAt: ISO8601DateFormatter().string(from: Date())
+                        )
+                        checkInsChanged = true
+                    } else if device.state == 0 {
+                        // Keep state 5 reflected locally while the pending check-in awaits hardware/cloud sync
+                        fetchedDevices[index].state = 5
+                    }
+                }
+            }
+            if checkInsChanged {
+                persistActiveCheckIns()
+            }
+            familyDevices = fetchedDevices
             alerts = try await apiClient.alerts(code: groupCode)
             if let current = activeAlert, let updated = alerts.first(where: { $0.id == current.id }) {
                 activeAlert = updated
                 persistActiveAlert()
             }
             LoopNotifications.shared.receive(alerts)
-            syncStatus = "Updated " + Date().formatted(date: .omitted, time: .shortened)
+            if let pending = activeCheckIns.values.first(where: { $0.status == "PENDING" }) {
+                syncStatus = "Check-in pending (requested by \(pending.initiatorName)) — waiting for response..."
+            } else {
+                syncStatus = "Updated " + Date().formatted(date: .omitted, time: .shortened)
+            }
             for device in familyDevices { resolveAddress(for: device) }
         } catch { syncStatus = error.localizedDescription }
     }
@@ -196,6 +263,7 @@ final class FamilyDeviceManager: ObservableObject {
             syncStatus = "Family alert created"
             return true
         } catch {
+            pendingInput = nil
             emergencyError = error.localizedDescription
             syncStatus = "Alert delivery unconfirmed: " + error.localizedDescription
             // Do not replay a stale SOS automatically later.
@@ -249,6 +317,10 @@ final class FamilyDeviceManager: ObservableObject {
         UserDefaults.standard.set(try? JSONEncoder().encode(activeAlert), forKey: "emergency.active." + groupCode)
     }
 
+    private func persistActiveCheckIns() {
+        UserDefaults.standard.set(try? JSONEncoder().encode(activeCheckIns), forKey: checkInsKey)
+    }
+
     func ensureCheckInSubscription() {
         guard hasGroup, checkInSubscriptionTask == nil else { return }
         let code = groupCode
@@ -288,7 +360,12 @@ final class FamilyDeviceManager: ObservableObject {
 
     private func handleCheckInUpdate(_ checkIn: CloudCheckIn) {
         activeCheckIns[checkIn.targetDeviceID] = checkIn
+        persistActiveCheckIns()
         if checkIn.status == "PENDING" {
+            pendingCheckInSentAt[checkIn.targetDeviceID] = Date()
+            if let index = familyDevices.firstIndex(where: { $0.id == checkIn.targetDeviceID }), familyDevices[index].state == 0 {
+                familyDevices[index].state = 5
+            }
             syncStatus = "Check-in requested by \(checkIn.initiatorName)"
             if !handledCheckInIDs.contains(checkIn.checkInID) {
                 handledCheckInIDs.insert(checkIn.checkInID)
@@ -300,6 +377,11 @@ final class FamilyDeviceManager: ObservableObject {
                 )
             }
         } else if checkIn.status == "SAFE" {
+            pendingCheckInSentAt.removeValue(forKey: checkIn.targetDeviceID)
+            observedHardwarePingDevices.remove(checkIn.targetDeviceID)
+            if let index = familyDevices.firstIndex(where: { $0.id == checkIn.targetDeviceID }), familyDevices[index].state == 5 {
+                familyDevices[index].state = 0
+            }
             syncStatus = "Check-in confirmed SAFE!"
         }
     }
@@ -310,6 +392,11 @@ final class FamilyDeviceManager: ObservableObject {
         do {
             let checkIn = try await apiClient.sendPing(code: groupCode, targetDeviceID: deviceID)
             activeCheckIns[deviceID] = checkIn
+            pendingCheckInSentAt[deviceID] = Date()
+            persistActiveCheckIns()
+            if let index = familyDevices.firstIndex(where: { $0.id == deviceID }), familyDevices[index].state == 0 {
+                familyDevices[index].state = 5
+            }
             syncStatus = "Check-in ping sent! Waiting for response..."
             if !handledCheckInIDs.contains(checkIn.checkInID) {
                 handledCheckInIDs.insert(checkIn.checkInID)
@@ -330,6 +417,12 @@ final class FamilyDeviceManager: ObservableObject {
         do {
             let updated = try await apiClient.acknowledgePing(checkInID: checkIn.checkInID)
             activeCheckIns[deviceID] = updated
+            pendingCheckInSentAt.removeValue(forKey: deviceID)
+            observedHardwarePingDevices.remove(deviceID)
+            persistActiveCheckIns()
+            if let index = familyDevices.firstIndex(where: { $0.id == deviceID }), familyDevices[index].state == 5 {
+                familyDevices[index].state = 0
+            }
             lastUploads[deviceID] = .distantPast
             syncStatus = "Check-in confirmed SAFE!"
         } catch {

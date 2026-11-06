@@ -211,6 +211,16 @@ struct MemberListSection: View {
         return member.isOnline ? member.bpm : 0
     }
 
+    private func effectiveState(for member: FamilyDeviceSnapshot) -> Int {
+        if let localStatus = bleMonitor.deviceStatuses[member.id], localStatus.isConnected, localStatus.lifeLoopState.state != 0 {
+            return localStatus.lifeLoopState.state
+        }
+        if manager.activeCheckIns[member.id]?.status == "PENDING" && member.state == 0 {
+            return 5
+        }
+        return member.state
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text(title).font(.title3.bold())
@@ -220,6 +230,7 @@ struct MemberListSection: View {
             }
             ForEach(members) { member in
                 let bpm = latestBPM(for: member)
+                let state = effectiveState(for: member)
                 let bpmLabel = bpm > 0 ? "\(Int(bpm.rounded())) bpm" : "— bpm"
                 NavigationLink {
                     MemberInfoView(memberID: member.id, manager: manager)
@@ -229,7 +240,7 @@ struct MemberListSection: View {
                         VStack(alignment: .leading, spacing: 5) {
                             Text(member.ownerName.isEmpty ? member.displayName : member.ownerName).font(.headline)
                             Text(member.displayName).font(.caption).foregroundStyle(.secondary)
-                            Text(member.isOnline ? "\(bpmLabel) · \(member.state == 0 ? "Normal" : member.state == 5 ? "Check-in pending" : "Needs attention")" : "Offline")
+                            Text(member.isOnline ? "\(bpmLabel) · \(state == 0 ? "Normal" : state == 5 ? "Check-in pending" : "Needs attention")" : "Offline")
                                 .font(.subheadline).foregroundStyle(member.isOnline ? LoopStyle.green : .secondary)
                         }
                         Spacer()
@@ -273,6 +284,16 @@ struct MemberInfoView: View {
         return member.isOnline ? member.bpm : 0
     }
 
+    private func effectiveState(for member: FamilyDeviceSnapshot) -> Int {
+        if let localStatus = bleMonitor.deviceStatuses[member.id], localStatus.isConnected, localStatus.lifeLoopState.state != 0 {
+            return localStatus.lifeLoopState.state
+        }
+        if manager.activeCheckIns[member.id]?.status == "PENDING" && member.state == 0 {
+            return 5
+        }
+        return member.state
+    }
+
     private func streetAddressText(for member: FamilyDeviceSnapshot) -> String {
         guard member.isLocationShared, member.latitude != 0 || member.longitude != 0 else {
             return "Location not shared"
@@ -284,6 +305,7 @@ struct MemberInfoView: View {
         ScrollView {
             if let member {
                 let bpm = latestBPM(for: member)
+                let state = effectiveState(for: member)
                 let isConnected = (bleMonitor.deviceStatuses[member.id]?.isConnected == true) || member.isOnline
                 let addressText = streetAddressText(for: member)
                 VStack(alignment: .leading, spacing: 24) {
@@ -314,13 +336,27 @@ struct MemberInfoView: View {
                     .foregroundStyle(LoopStyle.ink)
 
                     if let checkIn = manager.activeCheckIns[member.id] {
+                        let isSafe = checkIn.status == "SAFE" && state != 5
                         HStack(spacing: 10) {
-                            Image(systemName: checkIn.status == "SAFE" ? "checkmark.circle.fill" : "clock.badge.exclamationmark")
-                                .foregroundStyle(checkIn.status == "SAFE" ? LoopStyle.green : .orange)
+                            Image(systemName: isSafe ? "checkmark.circle.fill" : "clock.badge.exclamationmark")
+                                .foregroundStyle(isSafe ? LoopStyle.green : .orange)
                             VStack(alignment: .leading, spacing: 4) {
-                                Text(checkIn.status == "SAFE" ? "Check-In Confirmed (SAFE)" : "Check-In Pending…")
+                                Text(isSafe ? "Check-In Confirmed (SAFE)" : "Check-In Pending…")
                                     .font(.subheadline.bold())
-                                Text(checkIn.status == "SAFE" ? "Wearer acknowledged the check-in on their device." : "Requested by \(checkIn.initiatorName). Waiting for button press.")
+                                Text(isSafe ? "Wearer acknowledged the check-in on their device." : "Requested by \(checkIn.initiatorName). Waiting for button press.")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .loopCard()
+                    } else if state == 5 {
+                        HStack(spacing: 10) {
+                            Image(systemName: "clock.badge.exclamationmark")
+                                .foregroundStyle(.orange)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Check-In Pending…")
+                                    .font(.subheadline.bold())
+                                Text("Waiting for wearer to press the button on their device.")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
@@ -342,7 +378,7 @@ struct MemberInfoView: View {
                     MemberMap(name: member.displayName, latitude: member.latitude, longitude: member.longitude, shared: member.isLocationShared)
                     Text("Latest update").font(.title3.bold())
                     VStack(alignment: .leading, spacing: 8) {
-                        Text(member.state == 4 ? "EMERGENCY" : member.state == 5 ? "CHECK-IN PING ACTIVE" : member.state == 2 ? "FALL DETECTED" : member.state == 0 ? "Normal" : "Device state \(member.state)").font(.headline)
+                        Text(state == 4 ? "EMERGENCY" : state == 5 ? "CHECK-IN PING ACTIVE" : state == 2 ? "FALL DETECTED" : state == 0 ? "Normal" : "Device state \(state)").font(.headline)
                         if let updated = member.lastUpdated {
                             Text(updated, format: .dateTime.month().day().year().hour().minute()).foregroundStyle(.secondary)
                         } else { Text("No update received").foregroundStyle(.secondary) }

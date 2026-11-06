@@ -41,6 +41,7 @@ final class BLEMonitor: NSObject, ObservableObject {
     private var pingActiveDevices: Set<String> = []
     private var pingSentAt: [String: Date] = [:]
     private var pendingPings: [String: Date] = [:]
+    private var pendingCancels: [String: Date] = [:]
     private let deviceStore = DeviceStore()
     
     // TIMING FIX: Prevents stale telemetry from overriding manual commands
@@ -196,6 +197,7 @@ final class BLEMonitor: NSObject, ObservableObject {
         deviceStatuses.removeValue(forKey: device.id)
         warningDevices.remove(device.id)
         pendingPings.removeValue(forKey: device.id)
+        pendingCancels.removeValue(forKey: device.id)
         if let peripheral = connectedPeripherals[device.id] {
             centralManager.cancelPeripheralConnection(peripheral)
         }
@@ -281,11 +283,11 @@ final class BLEMonitor: NSObject, ObservableObject {
                     // Honor the deliberate fall cancellation even if this packet
                     // also contains an abnormal heart-rate reading.
                     self.warningDevices.insert(deviceID)
-                } else if let warningReason, self.warningDevices.insert(deviceID).inserted {
+                } else if let warningReason, !appCancellationPending, self.warningDevices.insert(deviceID).inserted {
                     DispatchQueue.main.async {
                         EMSTimerManager.shared.startCountdown(reason: warningReason, deviceID: deviceID)
                     }
-                } else if newState.bpm > 40 && newState.state != 4 {
+                } else if warningReason == nil {
                     // A new episode can warn again after recovery; repeated samples cannot
                     // immediately undo the person's explicit cancellation.
                     self.warningDevices.remove(deviceID)
@@ -326,18 +328,53 @@ final class BLEMonitor: NSObject, ObservableObject {
     }
 
     func sendCancelCommand() {
-        lastCommandSentAt = Date() // Stamps the time the button was pressed
+        let now = Date()
+        guard now.timeIntervalSince(lastCommandSentAt) >= 0.25 else { return }
+        lastCommandSentAt = now // Stamps the time the button was pressed
+        let targets = Set(knownDevices.map(\.id)).union(connectedPeripherals.keys)
+        for id in targets {
+            awaitingAppCancellation.insert(id)
+            pingSentAt.removeValue(forKey: id)
+            pendingPings.removeValue(forKey: id)
+            pingActiveDevices.remove(id)
+            pendingCancels[id] = now.addingTimeInterval(15)
+            flushPendingCancel(deviceID: id)
+        }
+        maintainConnections()
+    }
+
+    private func flushPendingCancel(deviceID: String) {
+        guard let deadline = pendingCancels[deviceID] else { return }
+        guard deadline > Date() else {
+            pendingCancels.removeValue(forKey: deviceID)
+            return
+        }
+        guard let peripheral = connectedPeripherals[deviceID],
+              peripheral.state == .connected else {
+            return
+        }
+        let discoveredRx = peripheral.services?
+            .first(where: { $0.uuid == Self.serviceUUID })?
+            .characteristics?
+            .first(where: { $0.uuid == Self.rxCharacteristicUUID })
+        if let discoveredRx, rxCharacteristics[deviceID] == nil {
+            rxCharacteristics[deviceID] = discoveredRx
+        }
+        guard let rxChar = rxCharacteristics[deviceID] else {
+            return
+        }
+        pendingCancels.removeValue(forKey: deviceID)
         let payload = Data("CANCEL".utf8)
-        for (id, peripheral) in connectedPeripherals {
-            if let rxChar = rxCharacteristics[id] {
-                awaitingAppCancellation.insert(id)
-                pingSentAt.removeValue(forKey: id)
-                pendingPings.removeValue(forKey: id)
-                pingActiveDevices.remove(id)
-                peripheral.writeValue(payload, for: rxChar, type: .withResponse)
-                log("Sent CANCEL command to device")
+        peripheral.writeValue(payload, for: rxChar, type: .withResponse)
+        updateStatus(for: deviceID) { status in
+            if status.lifeLoopState.state != 0 {
+                status.lifeLoopState.state = 0
+                DispatchQueue.main.async {
+                    self.pingAckSequence += 1
+                }
             }
         }
+        log("Sent CANCEL command to device")
     }
 
     func sendSOSCommand() {
@@ -609,6 +646,7 @@ extension BLEMonitor: CBPeripheralDelegate {
 
         if let rxChar = service.characteristics?.first(where: { $0.uuid == Self.rxCharacteristicUUID }) {
             rxCharacteristics[id] = rxChar
+            flushPendingCancel(deviceID: id)
             flushPendingPing(deviceID: id)
         }
     }

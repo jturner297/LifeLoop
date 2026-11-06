@@ -6,6 +6,11 @@ import UserNotifications
 
 class AppDelegate: NSObject, UIApplicationDelegate {
     var bleMonitor: BLEMonitor?
+
+    func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey : Any]? = nil) -> Bool {
+        LoopNotifications.shared.configure()
+        return true
+    }
     
     func application(_ application: UIApplication, didReceiveRemoteNotification userInfo: [AnyHashable : Any], fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void) {
         

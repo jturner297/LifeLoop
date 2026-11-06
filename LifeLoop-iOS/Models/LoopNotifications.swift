@@ -56,14 +56,46 @@ final class LoopNotifications: NSObject, UNUserNotificationCenterDelegate {
         UNUserNotificationCenter.current().removeAllPendingNotificationRequests()
     }
 
-    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
-        guard UserDefaults.standard.bool(forKey: "profile.notifications") else { return [] }
-        return UserDefaults.standard.object(forKey: "notifications.sound") as? Bool ?? true ? [.banner, .list, .sound] : [.banner, .list]
+    nonisolated func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification,
+        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+    ) {
+        let complete = {
+            guard UserDefaults.standard.bool(forKey: "profile.notifications") else {
+                completionHandler([])
+                return
+            }
+            let soundEnabled = UserDefaults.standard.object(forKey: "notifications.sound") as? Bool ?? true
+            completionHandler(soundEnabled ? [.banner, .list, .sound] : [.banner, .list])
+        }
+        if Thread.isMainThread {
+            complete()
+        } else {
+            DispatchQueue.main.async(execute: complete)
+        }
     }
 
-    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
-        guard response.actionIdentifier != UNNotificationDismissActionIdentifier,
-              let code = response.notification.request.content.userInfo["groupCode"] as? String else { return }
-        await MainActor.run { self.selectedGroupCode = code }
+    nonisolated func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse,
+        withCompletionHandler completionHandler: @escaping () -> Void
+    ) {
+        let actionIdentifier = response.actionIdentifier
+        let code = response.notification.request.content.userInfo["groupCode"] as? String
+        let completeOnMain = {
+            MainActor.assumeIsolated {
+                if actionIdentifier != UNNotificationDismissActionIdentifier,
+                   let code, !code.isEmpty {
+                    self.selectedGroupCode = code
+                }
+            }
+            completionHandler()
+        }
+        if Thread.isMainThread {
+            completeOnMain()
+        } else {
+            DispatchQueue.main.async(execute: completeOnMain)
+        }
     }
 }

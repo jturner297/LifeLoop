@@ -10,8 +10,9 @@ struct EMSCountdown: View {
             secondsRemaining: timerManager.timeRemaining,
             reason: timerManager.triggerReason
         ) {
-            if let onCancel { onCancel() }
-            else { timerManager.cancelCountdown(); bleMonitor.sendCancelCommand() }
+            timerManager.cancelCountdown()
+            bleMonitor.sendCancelCommand()
+            onCancel?()
         }
         .interactiveDismissDisabled()
     }
