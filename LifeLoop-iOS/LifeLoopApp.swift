@@ -4,19 +4,43 @@ import AWSCognitoAuthPlugin
 import AWSAPIPlugin
 import UserNotifications
 
+class AppDelegate: NSObject, UIApplicationDelegate {
+    var bleMonitor: BLEMonitor?
+
+    func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey : Any]? = nil) -> Bool {
+        LoopNotifications.shared.configure()
+        return true
+    }
+    
+    func application(_ application: UIApplication, didReceiveRemoteNotification userInfo: [AnyHashable : Any], fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void) {
+        
+        // 2. Check if the push payload contains the AWS ping trigger
+        if let ping = userInfo["ping"] as? String, ping == "true" {
+            bleMonitor?.sendPingCommand()
+            completionHandler(.newData)
+        } else {
+            completionHandler(.noData)
+        }
+    }
+}
+
 @main
 struct LifeLoopApp: App {
+    @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @StateObject private var bleMonitor = BLEMonitor()
 
     init() {
         configureAmplify()
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
+        LoopNotifications.shared.configure()
     }
 
     var body: some Scene {
         WindowGroup {
             AppRootView()
                 .environmentObject(bleMonitor)
+                .onAppear() {
+                    appDelegate.bleMonitor = bleMonitor
+                }
         }
     }
 

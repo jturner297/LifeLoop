@@ -19,24 +19,33 @@ class EMSTimerManager: ObservableObject {
     @Published var isCountingDown = false
     @Published var triggerReason: String = "EMERGENCY DETECTED"
     
+    private(set) var triggerDeviceID: String?
     var onImmediateTrigger: ((String) -> Void)?
     
     // Actual iOS timer object
     private var timer: Timer?
+    private var callDeadline: Date?
+
+    func synchronizeCallDeadline(_ date: Date) {
+        callDeadline = date
+        timeRemaining = max(0, Int(ceil(date.timeIntervalSinceNow)))
+    }
     
     // Timer countdown function
-    func startCountdown(reason: String) {
+    func startCountdown(reason: String, deviceID: String? = nil) {
         // Fall has been detected (isActive) but set the isAlertTriggered to false so the emergency protocol doesn't start immediately
         
-        guard !isCountingDown else { return }
+        guard !isCountingDown, !isActive, !isAlertTriggered else { return }
         
         //Store the message for the UI
         self.triggerReason = reason
+        triggerDeviceID = deviceID
         
         onImmediateTrigger?(reason)
         
         isCountingDown = true
         timeRemaining = 30
+        callDeadline = Date().addingTimeInterval(30)
         
         isActive = true
         isAlertTriggered = false
@@ -51,16 +60,15 @@ class EMSTimerManager: ObservableObject {
             guard let self = self else {return}
             
             // Whenever there is more than 0 time remaning continue to subtract 1 second until you reach 0
-            if self.timeRemaining > 0 {
-                self.timeRemaining -= 1
-                
-            // Users did not cancel countdown (physical or hardware), so kill timer, the countdown is over (isActive), and now call EMS (isAlertTriggered)
-                
-            } else {
+            self.timeRemaining = max(0, Int(ceil((self.callDeadline ?? Date()).timeIntervalSinceNow)))
+            if self.timeRemaining == 0 {
                 self.timer?.invalidate()
-                self.isActive = false
+                // Keep the emergency presentation visible as it transitions to delivery status.
                 self.isAlertTriggered = true
+                self.isActive = false
                 self.isCountingDown = false
+                
+                EmergencyAlarmManager.shared.stopAlarm()
             }
             
         }
