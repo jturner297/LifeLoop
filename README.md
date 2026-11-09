@@ -8,11 +8,8 @@ LifeLoop is an iOS application built with SwiftUI, integrating Bluetooth Low Ene
 ## Architecture & Core Components
 
 ### 1. Application Lifecycle & Configuration
-* **App Initialization (`LifeLoopApp` & `AppDelegate`):** Configures AWS Amplify (Cognito Auth and API plugins) on startup, registers notification categories via `LoopNotifications`, and handles background remote notifications (e.g., triggering BLE ping commands when a remote ping push payload is received).
-* **Bundle Identifier:** Configured for build target `app.ShortCircuit.LifeLoop-conf1`.
-* **Launch Screen:** Configured with custom launch background color (`LaunchBackground`) and logo asset (`LifeLoopLogo`). Supported interface orientation is locked to Portrait.
-
----
+* **App Initialization (`LifeLoopApp`):** Configures AWS Amplify (Auth and API plugins) and requests user notification authorizations (`.alert`, `.sound`, `.badge`) on app launch.
+* **Bundle Identifier:** Configured dynamically via Xcode build target settings.
 
 ### 2. UI & User Flows
 
