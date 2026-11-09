@@ -1,7 +1,7 @@
 # LifeLoop iOS App Documentation
 
 ## Overview
-LifeLoop is an iOS application built with SwiftUI, integrating Bluetooth Low Energy (BLE) hardware telemetry monitoring, location services via CoreLocation, AWS Amplify with Cognito User Pools and AppSync GraphQL services for family health monitoring, hardware check-in pinging, and emergency alert dispatching.
+LifeLoop is an iOS application built with SwiftUI, integrating Bluetooth Low Energy (BLE) hardware telemetry monitoring, location services via CoreLocation, AWS Amplify with Cognito User Pools and AppSync GraphQL services for family health monitoring, hardware check-in pinging, real-time alert subscriptions, and emergency dispatching.
 
 ---
 
@@ -24,19 +24,20 @@ LifeLoop is an iOS application built with SwiftUI, integrating Bluetooth Low Ene
 
 #### Main Application Navigation (`ContentView`)
 * **Tab Navigation:** Houses a 4-tab bottom navigation interface:
-  1. **Home:** Main dashboard featuring user greeting, member/device search bar, view filters (Home, Family, Map), local device quick cards, manual "Call Help" emergency button, and group member lists.
+  1. **Home:** Main dashboard featuring user greeting, member/device search bar, view filters (Home, Family, Map), local device quick cards, manual "Call Help" emergency button, persistent emergency cancellation failure cards, and group member lists.
   2. **Devices:** Lists all saved LifeLoop BLE hardware peripherals, connection statuses, battery levels, and controls for connecting new peripherals.
   3. **Groups:** Displays family groups, invitation codes, member management, call contacts, and shared device configurations.
   4. **Profile:** Displays user profile details, privacy settings, notification configurations, and account management options.
 
 #### Home Tab (`ContentView`)
 * **Manual Emergency Call:** Provides a prominent "Call Help" button to initiate the emergency countdown (`EMSTimerManager`) and issue an `SOS` command to connected BLE devices.
+* **Cloud Cancellation Warning Card:** Displays a prominent yellow warning card directly above the emergency button if a cloud emergency cancellation attempt fails on AWS, allowing the wearer to retry cloud cancellation explicitly without restarting an alert.
 * **Search & Filters:** Enables filtering by Home view, Family member cards, or interactive group map view.
 
 #### Devices Tab & Device Profiles (`ContentView`, `DeviceProfileSheet`, `AddDeviceSheet`)
 * **BLE Device List:** Displays saved hardware peripherals, live heart rate (BPM), connection status (Connected, Connecting, Offline), and low battery warnings (<= 10%).
 * **Add Device Sheet (`AddDeviceSheet`):** Scans for nearby LifeLoop BLE peripherals using `BLEMonitor`, listing discovered devices for one-tap pairing.
-* **Device Profile Sheet (`DeviceProfileSheet`):** Shows detailed hardware state, battery level, live BPM, coordinates, last update timestamp, location map preview, raw BLE text payload, connection log, option to rename the device, and option to remove the device.
+* **Device Profile Sheet (`DeviceProfileSheet`):** Shows detailed hardware state, battery level, live BPM, coordinates, last update timestamp, location map preview, raw BLE text payload, connection log, option to rename the device, and an explicit removal alert confirmation that disconnects and purges saved peripheral references.
 
 #### Groups & Family Management (`GroupsView`, `GroupDetailView`, `FamilyManagementViews`)
 * **Group Management:**
@@ -63,10 +64,12 @@ LifeLoop is an iOS application built with SwiftUI, integrating Bluetooth Low Ene
   * Configures emergency alerts, call-workflow status updates, and sound toggles.
   * Displays system authorization status, provides a direct link to iOS App Settings, and includes a test notification trigger.
 
-#### Emergency Overlay & Dispatch Status (`EMSCountdown`, `SOSAlertStatusView`)
+#### Emergency Overlay, Cancellation & Dispatch Status (`EMSCountdown`, `SOSAlertStatusView`)
 * **Emergency Countdown (`EMSCountdown` / `EmergencyCountdownScreen`):**
   * Full-screen emergency presentation triggered automatically when a fall or cardiac abnormality is detected, or when manual SOS is pressed.
   * Displays a 30-second countdown ring, trigger reason, dynamic font sizing, accessibility reduce-motion awareness, and an explicit **"I’m OK — Cancel alert"** button.
+* **Cancellation Feedback & Retry Alert:**
+  * If the wearer cancels an alert but the AWS GraphQL cancellation mutation fails, the screen presents a "Cancellation Unconfirmed" alert prompt with options to retry cancellation or dismiss, ensuring the wearer is explicitly informed that emergency contacts may still be notified.
 * **Alert Status (`SOSAlertStatusView`):**
   * Full-screen view presented after the countdown expires while the alert is active on AWS AppSync.
   * Informs the user of dispatch progress, grace period status, and option to request cancellation before emergency calls begin.
@@ -125,17 +128,26 @@ LifeLoop is an iOS application built with SwiftUI, integrating Bluetooth Low Ene
   * Controls the 30-second emergency countdown timer when cardiac, fall, or manual SOS events occur.
   * Holds reference to `triggerDeviceID`, `triggerReason`, and `callDeadline`.
   * `synchronizeCallDeadline(_ date: Date)`: Synchronizes the local timer deadline with the earliest call time returned by AWS backend alerts.
-* **Audio Alarm (`EmergencyAlarmManager`):** Manages playing local emergency alarm audio ("Danger Alarm Sound Effect.mp3") during active emergency states and stopping audio upon cancellation.
+* **Audio & Haptic Alarm (`EmergencyAlarmManager`):**
+  * Pre-loads the emergency alarm audio track into memory at app boot without activating the system audio session.
+  * **Lazy Audio Activation & Prioritization:** Dynamically activates `AVAudioSession` with `.playback` category and `.duckOthers` option only when `startAlarm()` is executed during an active emergency, ducking external audio (e.g. Spotify/Apple Music).
+  * **Haptic Vibration Loop:** Uses a dedicated `UIImpactFeedbackGenerator` with `.heavy` style triggered on a 0.6-second repeating timer alongside system vibrations.
+  * **Audio Session Cleanup:** Calling `stopAlarm()` halts playback, invalidates the haptic timer, resets track timing, and explicitly deactivates the audio session with `.notifyOthersOnDeactivation` to immediately restore background audio volume.
 
 ---
 
 ### 6. Family Telemetry, Check-Ins & Synchronization (`FamilyDeviceManager`, `LoopNotifications`)
-* **Telemetry Upload:** Periodically syncs connected device telemetry (BPM, state, GPS coordinates, location sharing preferences, online status) with AWS AppSync for linked family devices.
+* **Telemetry Upload & Link Optimization:**
+  * Periodically syncs connected device telemetry (BPM, state, GPS coordinates, location sharing preferences, online status) with AWS AppSync for linked family devices.
+  * Maintains an in-memory `linkedDeviceKeys` set cache (`\(code):\(deviceID):\(displayName)`) to execute `linkDevice` GraphQL mutations only once per device connection, eliminating redundant AWS write operations during continuous telemetry streams.
 * **Reverse Geocoding:** Converts latitude and longitude coordinates into structured street addresses using `CLGeocoder`, caching results per device.
+* **Real-Time Subscription Management:**
+  * **Check-In Subscriptions (`ensureCheckInSubscription`):** Listens to GraphQL WebSocket updates (`onCheckInChange`) for prompt acknowledgment.
+  * **Alert Subscriptions (`ensureAlertSubscription`):** Subscribes to real-time GraphQL WebSocket alert changes (`onAlertChange`) via `apiClient.subscribeToAlerts(code:)`. Immediately processes incoming alerts, updates active group alert states, and passes alert payloads directly to `LoopNotifications.shared.receive([alert])` without polling delays.
+  * **Lifecycle Cleanup:** Cancels and resets WebSocket subscription sequences (`activeCheckInSequence`, `activeAlertSequence`) when leaving groups or invoking `stopSharing()`.
 * **Check-In PING Management:**
   * `requestCheckIn(for:)`: Issues a `sendPing` GraphQL mutation to prompt a specific device.
   * `acknowledgePing(checkInID:)`: Issues an `acknowledgePing` GraphQL mutation once the hardware button press is recognized.
-  * `subscribeToCheckIns(code:)`: Establishes a real-time GraphQL WebSocket subscription (`onCheckInChange`) to track check-in status across group devices.
 * **Alert Lifecycle & Cancellation:**
   * `sendMyEmergencyAlert`: Calls AWS AppSync `startEmergency` mutation with stable alert IDs, location coordinates, and dispatch reason.
   * `cancelMyOwnEmergency` / `cancelAlert` / `cancelEmergency`: Calls AWS AppSync `cancelEmergency` mutation to cancel pending alerts before emergency calls begin.
@@ -176,6 +188,7 @@ Communicates with AWS AppSync GraphQL API backend using Amplify API plugin with 
     * `alerts(code:)`: Queries recent alerts (`alertsForGroup`) for a family group.
     * `sendPing(code:targetDeviceID:)` / `acknowledgePing(checkInID:)`: Sends or acknowledges check-in pings.
     * `subscribeToCheckIns(code:)`: Real-time subscription to `onCheckInChange`.
+    * `subscribeToAlerts(code:)`: Real-time subscription to GraphQL `onAlertChange` events.
 
 ---
 
@@ -185,7 +198,13 @@ Communicates with AWS AppSync GraphQL API backend using Amplify API plugin with 
 
 ---
 
-### 9. Infrastructure & CI/CD Updates
+### 9. Infrastructure & Codebase Optimizations
+
+#### Key Audits & Fixes (`ANALYSIS_REPORT.md`)
+* **Cloud Alert Cancellation Feedback:** Resolved state teardown issue during countdown dismissal by surfacing unconfirmed cancellations via native alert dialogs and Home view retry buttons.
+* **Audio Session Priority & Deactivation:** Prevents background audio ducking at app launch by deferring `AVAudioSession` activation to active siren events and explicitly releasing the session on stop.
+* **Real-time Alert Notifications:** Replaced polling mechanisms with real-time AWS AppSync GraphQL WebSocket subscriptions (`onAlertChange`) for instant caregiver emergency notifications.
+* **GraphQL Write Reduction:** Implemented key caching for device linking to prevent unnecessary repeat `linkDevice` mutations during live device telemetry streaming.
 
 #### Automated Documentation
 * **Auto-Docs Workflow (`.github/workflows/auto-docs.yml`):** Utilizes Gemini CLI (`gemini-3.6-flash` model) for automated documentation maintenance upon repository pushes. Configured to maintain and commit updates directly to `README.md`.
