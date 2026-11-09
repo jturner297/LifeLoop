@@ -8,6 +8,7 @@ struct ContentView: View {
     @State private var notifications = LoopNotifications.shared
     @State private var notificationGroup: LoopGroup?
     @State private var cancellationMessage = ""
+    @State private var showCancellationAlert = false
     @State private var tab = 0
     @State private var search = ""
     @State private var filter = 0
@@ -95,6 +96,12 @@ struct ContentView: View {
             }
             .environment(profile)
             .environmentObject(bleMonitor)
+        }
+        .alert("Cancellation Unconfirmed", isPresented: $showCancellationAlert) {
+            Button("Retry Cancellation") { closeEmergency() }
+            Button("Dismiss", role: .cancel) {}
+        } message: {
+            Text(cancellationMessage.isEmpty ? "The cloud service could not confirm cancellation. Saved contacts may still be notified." : cancellationMessage + "\n\nSaved contacts may still be notified if cancellation cannot be confirmed.")
         }
         .task {
             while !Task.isCancelled {
@@ -237,6 +244,29 @@ struct ContentView: View {
 
     private var emergencyButton: some View {
         VStack(alignment: .leading, spacing: 10) {
+            if !cancellationMessage.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.yellow)
+                        Text("Cloud Cancellation Unconfirmed")
+                            .font(.subheadline.bold())
+                    }
+                    Text(cancellationMessage)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Button {
+                        closeEmergency()
+                    } label: {
+                        Text("Retry Cloud Cancellation")
+                            .font(.subheadline.bold())
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.red)
+                }
+                .loopCard()
+            }
             Button {
                 if timer.isAlertTriggered {
                     closeEmergency()
@@ -328,6 +358,11 @@ struct ContentView: View {
                 cancellationMessage = failures.joined(separator: "\n")
                 emergencyDeliveryTitle = "Cancellation unconfirmed"
                 emergencyDeliveryMessage = cancellationMessage + "\nThe alert remains active. Try canceling again."
+                showCancellationAlert = true
+            } else {
+                cancellationMessage = ""
+                emergencyDeliveryTitle = ""
+                emergencyDeliveryMessage = ""
             }
             isClosingEmergency = false
         }
@@ -416,9 +451,6 @@ struct DeviceProfileSheet: View {
                     telemetryRow(title: "Last Update", value: lastUpdatedText)
                 }
 
-                Section {
-                    Button("Remove device", role: .destructive) { removeDevice = true }
-                }
                 Section("Raw Payload") {
                     Text(status.lastPayload.isEmpty ? "No BLE data received yet" : status.lastPayload)
                         .font(.system(size: 12, weight: .regular, design: .monospaced))
@@ -452,12 +484,19 @@ struct DeviceProfileSheet: View {
                     .tint(teal)
                     .listRowBackground(surface)
                 }
+
+                Section {
+                    Button("Remove device", role: .destructive) { removeDevice = true }
+                }
             }
-            .confirmationDialog("Remove this device from your phone?", isPresented: $removeDevice, titleVisibility: .visible) {
+            .alert("Remove this device from your phone?", isPresented: $removeDevice) {
                 Button("Remove device", role: .destructive) {
                     bleMonitor.removeKnownDevice(device)
                     dismiss()
                 }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("This will disconnect the device and remove it from your saved devices.")
             }
             .navigationTitle(currentDevice?.name ?? device.name)
             .navigationBarTitleDisplayMode(.inline)

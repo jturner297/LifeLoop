@@ -211,6 +211,18 @@ final class FamilyAPIClient {
         return Amplify.API.subscribe(request: request)
     }
 
+    func subscribeToAlerts(code: String) -> AmplifyAsyncThrowingSequence<GraphQLSubscriptionEvent<CloudAlert>> {
+        let document = "subscription OnAlertChange($code: String!) { onAlertChange(groupCode: $code) { \(Self.alertFields) } }"
+        let request = GraphQLRequest<CloudAlert>(
+            document: document,
+            variables: ["code": code],
+            responseType: CloudAlert.self,
+            decodePath: "onAlertChange",
+            authMode: AWSAuthorizationType.amazonCognitoUserPools
+        )
+        return Amplify.API.subscribe(request: request)
+    }
+
     func myFamilies() async throws -> [CloudMember] {
         try await execute("myFamilies", fields: memberFields)
     }
