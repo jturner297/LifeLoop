@@ -9,7 +9,7 @@ LifeLoop is an iOS application built with SwiftUI, integrating Bluetooth Low Ene
 
 ### 1. Application Lifecycle & Configuration
 * **App Initialization (`LifeLoopApp`):** Configures AWS Amplify (Auth and API plugins) and requests user notification authorizations (`.alert`, `.sound`, `.badge`) on app launch.
-* **Bundle Identifier:** Configured for development build target `app.ShortCircuit.LifeLoop-dev`.
+* **Bundle Identifier:** Configured dynamically via Xcode build target settings.
 
 ### 2. UI & User Flows
 
