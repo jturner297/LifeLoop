@@ -40,7 +40,10 @@ final class FamilyDeviceManager: ObservableObject {
     private var pendingInput: StartEmergencyInput?
     private var checkInSubscriptionTask: Task<Void, Never>?
     private var activeCheckInSequence: AmplifyAsyncThrowingSequence<GraphQLSubscriptionEvent<CloudCheckIn>>?
+    private var alertSubscriptionTask: Task<Void, Never>?
+    private var activeAlertSequence: AmplifyAsyncThrowingSequence<GraphQLSubscriptionEvent<CloudAlert>>?
     private var handledCheckInIDs: Set<String> = []
+    private var linkedDeviceKeys: Set<String> = []
 
     init(apiClient: FamilyAPIClient = .shared, groupCode: String? = nil) {
         self.apiClient = apiClient
@@ -71,6 +74,7 @@ final class FamilyDeviceManager: ObservableObject {
             }
         }
         ensureCheckInSubscription()
+        ensureAlertSubscription()
     }
 
     var hasGroup: Bool { !groupCode.isEmpty }
@@ -82,6 +86,10 @@ final class FamilyDeviceManager: ObservableObject {
         activeCheckInSequence = nil
         checkInSubscriptionTask?.cancel()
         checkInSubscriptionTask = nil
+        activeAlertSequence?.cancel()
+        activeAlertSequence = nil
+        alertSubscriptionTask?.cancel()
+        alertSubscriptionTask = nil
         linkedDeviceIDs = []
         UserDefaults.standard.set([], forKey: linkedKey)
         groupCode = ""
@@ -122,7 +130,11 @@ final class FamilyDeviceManager: ObservableObject {
             Task {
                 defer { uploading.remove(device.id); lastUploads[device.id] = Date() }
                 do {
-                    try await apiClient.linkDevice(LinkDevicePayload(groupCode: code, deviceID: device.id, displayName: device.name))
+                    let linkKey = "\(code):\(device.id):\(device.name)"
+                    if !linkedDeviceKeys.contains(linkKey) {
+                        try await apiClient.linkDevice(LinkDevicePayload(groupCode: code, deviceID: device.id, displayName: device.name))
+                        linkedDeviceKeys.insert(linkKey)
+                    }
                     guard hasGroup, sharesInformation, linkedDeviceIDs.contains(device.id) else { return }
                     let latestStatus = statuses[device.id]
                     let state = latestStatus?.lifeLoopState
@@ -159,6 +171,7 @@ final class FamilyDeviceManager: ObservableObject {
 
     func refreshFamilyDevices(force: Bool = true) async {
         ensureCheckInSubscription()
+        ensureAlertSubscription()
         guard hasGroup, !isSyncing else { return }
         if !force && Date().timeIntervalSince(lastRefresh ?? .distantPast) < 3 { return }
         isSyncing = true
@@ -384,6 +397,54 @@ final class FamilyDeviceManager: ObservableObject {
             }
             syncStatus = "Check-in confirmed SAFE!"
         }
+    }
+
+    func ensureAlertSubscription() {
+        guard hasGroup, alertSubscriptionTask == nil else { return }
+        let code = groupCode
+        alertSubscriptionTask = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let self, self.hasGroup else { break }
+                let sequence = self.apiClient.subscribeToAlerts(code: code)
+                self.activeAlertSequence = sequence
+                do {
+                    for try await event in sequence {
+                        if Task.isCancelled { break }
+                        switch event {
+                        case .connection:
+                            break
+                        case .data(let result):
+                            if case .success(let alert) = result {
+                                self.handleAlertUpdate(alert)
+                            }
+                        }
+                    }
+                } catch {
+                    if Task.isCancelled { break }
+                }
+                sequence.cancel()
+                self.activeAlertSequence = nil
+                try? await Task.sleep(for: .seconds(2))
+            }
+            await MainActor.run { [weak self] in
+                self?.activeAlertSequence?.cancel()
+                self?.activeAlertSequence = nil
+                self?.alertSubscriptionTask = nil
+            }
+        }
+    }
+
+    private func handleAlertUpdate(_ alert: CloudAlert) {
+        if let index = alerts.firstIndex(where: { $0.id == alert.id }) {
+            alerts[index] = alert
+        } else {
+            alerts.insert(alert, at: 0)
+        }
+        if activeAlert?.id == alert.id || (activeAlert == nil && alert.status == "PENDING") {
+            activeAlert = alert
+            persistActiveAlert()
+        }
+        LoopNotifications.shared.receive([alert])
     }
 
     func requestCheckIn(for deviceID: String) async {
