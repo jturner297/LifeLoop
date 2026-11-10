@@ -105,17 +105,52 @@ final class FamilyDeviceManager: ObservableObject {
         UserDefaults.standard.set(Array(linkedDeviceIDs), forKey: linkedKey)
     }
 
+    func removeDevice(deviceID: String) {
+        linkedDeviceIDs.remove(deviceID)
+        UserDefaults.standard.set(Array(linkedDeviceIDs), forKey: linkedKey)
+        connectedInSession.remove(deviceID)
+        familyDevices.removeAll { $0.id == deviceID }
+        addressCache.removeValue(forKey: deviceID)
+        lastLocations.removeValue(forKey: deviceID)
+        lastUploads.removeValue(forKey: deviceID)
+        lastUploadedStates.removeValue(forKey: deviceID)
+        lastUploadedBPMs.removeValue(forKey: deviceID)
+        
+        guard hasGroup else { return }
+        let code = groupCode
+        Task {
+            do {
+                let payload = FamilyTelemetryPayload(
+                    groupCode: code,
+                    deviceID: deviceID,
+                    displayName: "Offline device",
+                    bpm: 0,
+                    state: 0,
+                    latitude: 0,
+                    longitude: 0,
+                    isLocationShared: false,
+                    isOnline: false,
+                    lastUpdated: Date()
+                )
+                try await apiClient.uploadTelemetry(payload)
+            } catch {
+                print("Failed to notify cloud of removed device: \(error)")
+            }
+        }
+    }
+
     func uploadLocalDevices(_ devices: [KnownDevice], statuses: [String: DeviceStatus], fallbackLatitude: Double, fallbackLongitude: Double) {
         guard hasGroup, sharesInformation else { return }
         for device in devices where linkedDeviceIDs.contains(device.id) {
             let status = statuses[device.id]
             let online = status?.isConnected == true
+            let existingSnapshot = familyDevices.first(where: { $0.id == device.id })
             if online {
                 connectedInSession.insert(device.id)
             } else {
-                // Only upload an offline transition once if this phone was previously connected;
-                // never let an unconnected phone repeatedly overwrite the wearer's live state/BPM.
-                guard connectedInSession.remove(device.id) != nil else { continue }
+                let wasConnected = connectedInSession.remove(device.id) != nil
+                let cloudThinksOnline = existingSnapshot?.isOnline == true
+                guard wasConnected || cloudThinksOnline else { continue }
             }
             let rawState = online ? (status?.lifeLoopState.state ?? 0) : 0
             let pendingPingWindow = Date().timeIntervalSince(pendingCheckInSentAt[device.id] ?? .distantPast) < 8
@@ -123,11 +158,11 @@ final class FamilyDeviceManager: ObservableObject {
             let currentBPM: Float = online ? (status?.lifeLoopState.bpm ?? 0) : 0
             let stateChanged = lastUploadedStates[device.id] != currentState
             let bpmChanged = lastUploadedBPMs[device.id].map { abs(currentBPM - $0) >= 1.0 } ?? true
+            let onlineChanged = existingSnapshot?.isOnline != online
             guard !uploading.contains(device.id),
-                  stateChanged || bpmChanged || Date().timeIntervalSince(lastUploads[device.id] ?? .distantPast) > 4 else { continue }
+                  stateChanged || bpmChanged || onlineChanged || Date().timeIntervalSince(lastUploads[device.id] ?? .distantPast) > 4 else { continue }
             uploading.insert(device.id)
             let code = groupCode
-            let existingSnapshot = familyDevices.first(where: { $0.id == device.id })
             Task {
                 defer { uploading.remove(device.id); lastUploads[device.id] = Date() }
                 do {

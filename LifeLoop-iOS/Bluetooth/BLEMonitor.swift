@@ -154,7 +154,7 @@ final class BLEMonitor: NSObject, ObservableObject {
         centralManager.cancelPeripheralConnection(peripheral)
     }
     
-    func checkOfflineDevices(timeout: TimeInterval = 60) {
+    func checkOfflineDevices(timeout: TimeInterval = 15) {
         let now = Date()
         for (id, status) in deviceStatuses where status.isConnected {
             let peripheralDisconnected = connectedPeripherals[id]?.state != .connected
@@ -199,9 +199,12 @@ final class BLEMonitor: NSObject, ObservableObject {
         pendingPings.removeValue(forKey: device.id)
         pendingCancels.removeValue(forKey: device.id)
         pendingSOS.removeValue(forKey: device.id)
-        if let peripheral = connectedPeripherals[device.id] {
+        manuallyDisconnected.insert(device.id)
+        if let peripheral = connectedPeripherals.removeValue(forKey: device.id) {
             centralManager.cancelPeripheralConnection(peripheral)
         }
+        txCharacteristics.removeValue(forKey: device.id)
+        rxCharacteristics.removeValue(forKey: device.id)
         maintainConnections()
     }
     

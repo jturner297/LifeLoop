@@ -42,7 +42,17 @@ struct ContentView: View {
             AddDeviceSheet(bleMonitor: bleMonitor, background: LoopStyle.background, surface: .white, primaryText: LoopStyle.ink, secondaryText: .secondary, teal: LoopStyle.green)
         }
         .sheet(item: $selectedDevice) { device in
-            DeviceProfileSheet(device: device, bleMonitor: bleMonitor, background: LoopStyle.background, surface: .white, primaryText: LoopStyle.ink, secondaryText: .secondary, teal: LoopStyle.green, warning: .orange)
+            DeviceProfileSheet(
+                device: device,
+                bleMonitor: bleMonitor,
+                background: LoopStyle.background,
+                surface: .white,
+                primaryText: LoopStyle.ink,
+                secondaryText: .secondary,
+                teal: LoopStyle.green,
+                warning: .orange,
+                onRemove: { removeDevice(device) }
+            )
         }
         .fullScreenCover(isPresented: Binding(
             get: { timer.isActive || timer.isAlertTriggered },
@@ -238,7 +248,15 @@ struct ContentView: View {
                     Spacer()
                     Image(systemName: "chevron.right").foregroundStyle(.secondary)
                 }.loopCard()
-            }.buttonStyle(.plain)
+            }
+            .buttonStyle(.plain)
+            .contextMenu {
+                Button(role: .destructive) {
+                    removeDevice(device)
+                } label: {
+                    Label("Remove device", systemImage: "trash")
+                }
+            }
         }
     }
 
@@ -367,6 +385,16 @@ struct ContentView: View {
             isClosingEmergency = false
         }
     }
+
+    private func removeDevice(_ device: KnownDevice) {
+        bleMonitor.removeKnownDevice(device)
+        for manager in profile.managers.values {
+            manager.removeDevice(deviceID: device.id)
+        }
+        if selectedDevice?.id == device.id {
+            selectedDevice = nil
+        }
+    }
 }
 struct DeviceProfileSheet: View {
     let device: KnownDevice
@@ -382,6 +410,7 @@ struct DeviceProfileSheet: View {
     let secondaryText: Color
     let teal: Color
     let warning: Color
+    let onRemove: () -> Void
 
     init(
         device: KnownDevice,
@@ -391,7 +420,8 @@ struct DeviceProfileSheet: View {
         primaryText: Color,
         secondaryText: Color,
         teal: Color,
-        warning: Color
+        warning: Color,
+        onRemove: @escaping () -> Void
     ) {
         self.device = device
         self.bleMonitor = bleMonitor
@@ -401,6 +431,7 @@ struct DeviceProfileSheet: View {
         self.secondaryText = secondaryText
         self.teal = teal
         self.warning = warning
+        self.onRemove = onRemove
         _deviceName = State(initialValue: device.name)
     }
 
@@ -491,8 +522,7 @@ struct DeviceProfileSheet: View {
             }
             .alert("Remove this device from your phone?", isPresented: $removeDevice) {
                 Button("Remove device", role: .destructive) {
-                    bleMonitor.removeKnownDevice(device)
-                    dismiss()
+                    onRemove()
                 }
                 Button("Cancel", role: .cancel) {}
             } message: {

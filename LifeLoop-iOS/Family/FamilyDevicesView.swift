@@ -204,11 +204,19 @@ struct MemberListSection: View {
         manager.familyDevices.filter { search.isEmpty || $0.displayName.localizedCaseInsensitiveContains(search) || $0.ownerName.localizedCaseInsensitiveContains(search) }
     }
 
+    private func isDeviceOnline(_ member: FamilyDeviceSnapshot) -> Bool {
+        if let localStatus = bleMonitor.deviceStatuses[member.id] {
+            return localStatus.isConnected
+        }
+        guard member.isOnline, let updated = member.lastUpdated else { return false }
+        return Date().timeIntervalSince(updated) < 20
+    }
+
     private func latestBPM(for member: FamilyDeviceSnapshot) -> Float {
         if let localStatus = bleMonitor.deviceStatuses[member.id], localStatus.isConnected {
             return localStatus.lifeLoopState.bpm
         }
-        return member.isOnline ? member.bpm : 0
+        return isDeviceOnline(member) ? member.bpm : 0
     }
 
     private func effectiveState(for member: FamilyDeviceSnapshot) -> Int {
@@ -229,9 +237,10 @@ struct MemberListSection: View {
                     .foregroundStyle(.secondary).loopCard()
             }
             ForEach(members) { member in
+                let online = isDeviceOnline(member)
                 let bpm = latestBPM(for: member)
                 let state = effectiveState(for: member)
-                let bpmLabel = bpm > 0 ? "\(Int(bpm.rounded())) bpm" : "— bpm"
+                let bpmLabel = (online && bpm > 0) ? "\(Int(bpm.rounded())) bpm" : "— bpm"
                 NavigationLink {
                     MemberInfoView(memberID: member.id, manager: manager)
                 } label: {
@@ -240,8 +249,8 @@ struct MemberListSection: View {
                         VStack(alignment: .leading, spacing: 5) {
                             Text(member.ownerName.isEmpty ? member.displayName : member.ownerName).font(.headline)
                             Text(member.displayName).font(.caption).foregroundStyle(.secondary)
-                            Text(member.isOnline ? "\(bpmLabel) · \(state == 0 ? "Normal" : state == 5 ? "Check-in pending" : "Needs attention")" : "Offline")
-                                .font(.subheadline).foregroundStyle(member.isOnline ? LoopStyle.green : .secondary)
+                            Text(online ? "\(bpmLabel) · \(state == 0 ? "Normal" : state == 5 ? "Check-in pending" : "Needs attention")" : "Offline")
+                                .font(.subheadline).foregroundStyle(online ? LoopStyle.green : .secondary)
                         }
                         Spacer()
                         Image(systemName: "chevron.right").foregroundStyle(.secondary)
@@ -271,17 +280,27 @@ struct GroupMapSection: View {
 
 struct MemberInfoView: View {
     @EnvironmentObject private var bleMonitor: BLEMonitor
+    @Environment(\.dismiss) private var dismiss
     let memberID: String
     @ObservedObject var manager: FamilyDeviceManager
     @State private var cancel = false
+    @State private var removeMemberDevice = false
 
     private var member: FamilyDeviceSnapshot? { manager.familyDevices.first { $0.id == memberID } }
+
+    private func isDeviceOnline(_ member: FamilyDeviceSnapshot) -> Bool {
+        if let localStatus = bleMonitor.deviceStatuses[member.id] {
+            return localStatus.isConnected
+        }
+        guard member.isOnline, let updated = member.lastUpdated else { return false }
+        return Date().timeIntervalSince(updated) < 20
+    }
 
     private func latestBPM(for member: FamilyDeviceSnapshot) -> Float {
         if let localStatus = bleMonitor.deviceStatuses[member.id], localStatus.isConnected {
             return localStatus.lifeLoopState.bpm
         }
-        return member.isOnline ? member.bpm : 0
+        return isDeviceOnline(member) ? member.bpm : 0
     }
 
     private func effectiveState(for member: FamilyDeviceSnapshot) -> Int {
@@ -304,9 +323,9 @@ struct MemberInfoView: View {
     var body: some View {
         ScrollView {
             if let member {
+                let online = isDeviceOnline(member)
                 let bpm = latestBPM(for: member)
                 let state = effectiveState(for: member)
-                let isConnected = (bleMonitor.deviceStatuses[member.id]?.isConnected == true) || member.isOnline
                 let addressText = streetAddressText(for: member)
                 VStack(alignment: .leading, spacing: 24) {
                     ProfileAvatar(name: member.ownerName, size: 100)
@@ -319,8 +338,8 @@ struct MemberInfoView: View {
                         .textSelection(.enabled)
                     
                     HStack {
-                        metric(bpm > 0 ? "\(Int(bpm.rounded())) bpm" : "—", title: "Heart rate")
-                        metric(isConnected ? "Online" : "Offline", title: "Connection")
+                        metric((online && bpm > 0) ? "\(Int(bpm.rounded())) bpm" : "—", title: "Heart rate")
+                        metric(online ? "Online" : "Offline", title: "Connection")
                     }
                     
                     // NEW CHECK-IN BUTTON
@@ -385,6 +404,14 @@ struct MemberInfoView: View {
                     }.loopCard()
                     FamilyAlertsView(manager: manager, deviceID: member.id)
                     Text(manager.syncStatus).font(.footnote).foregroundStyle(.secondary)
+
+                    if manager.linkedDeviceIDs.contains(member.id) {
+                        Button("Remove from this family", role: .destructive) {
+                            removeMemberDevice = true
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
+                    }
                 }.padding(24).frame(maxWidth: 720)
             } else {
                 ContentUnavailableView("Member unavailable", systemImage: "person.crop.circle.badge.questionmark")
@@ -407,6 +434,15 @@ struct MemberInfoView: View {
                 Button("Request cancellation", role: .destructive) {
                     if let member { Task { await manager.cancelEmergency(for: member) } }
                 }
+            }
+            .alert("Remove this device from your family?", isPresented: $removeMemberDevice) {
+                Button("Remove", role: .destructive) {
+                    manager.removeDevice(deviceID: memberID)
+                    dismiss()
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("This device will stop sharing telemetry with this family group.")
             }
     }
 
