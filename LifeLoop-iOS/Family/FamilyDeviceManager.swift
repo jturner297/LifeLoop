@@ -13,6 +13,7 @@ struct MemberEvent: Identifiable, Codable {
 final class FamilyDeviceManager: ObservableObject {
     @Published var groupCode: String
     @Published private(set) var linkedDeviceIDs: Set<String>
+    @Published private(set) var removedDeviceIDs: Set<String>
     @Published private(set) var familyDevices: [FamilyDeviceSnapshot] = []
     @Published private(set) var recentEvents: [MemberEvent] = []
     @Published private(set) var alerts: [CloudAlert] = []
@@ -26,6 +27,7 @@ final class FamilyDeviceManager: ObservableObject {
 
     private let apiClient: FamilyAPIClient
     private let linkedKey: String
+    private let removedKey: String
     private let checkInsKey: String
     private var lastRefresh: Date?
     private var lastUploads: [String: Date] = [:]
@@ -37,6 +39,7 @@ final class FamilyDeviceManager: ObservableObject {
     private var uploading: Set<String> = []
     private var geocodingIDs: Set<String> = []
     private var lastLocations: [String: CLLocation] = [:]
+    private var lastGeocodeAttempts: [String: Date] = [:]
     private var pendingInput: StartEmergencyInput?
     private var checkInSubscriptionTask: Task<Void, Never>?
     private var activeCheckInSequence: AmplifyAsyncThrowingSequence<GraphQLSubscriptionEvent<CloudCheckIn>>?
@@ -50,8 +53,10 @@ final class FamilyDeviceManager: ObservableObject {
         let code = groupCode ?? ""
         self.groupCode = code
         linkedKey = "com.lifeloop.family.linkedDeviceIDs." + code
+        removedKey = "com.lifeloop.family.removedDeviceIDs." + code
         checkInsKey = "checkin.active." + code
         linkedDeviceIDs = Set(UserDefaults.standard.stringArray(forKey: linkedKey) ?? [])
+        removedDeviceIDs = Set(UserDefaults.standard.stringArray(forKey: removedKey) ?? [])
         if let data = UserDefaults.standard.data(forKey: "emergency.active." + code) {
             activeAlert = try? JSONDecoder().decode(CloudAlert.self, from: data)
         }
@@ -97,11 +102,51 @@ final class FamilyDeviceManager: ObservableObject {
 
     func toggleLink(for device: KnownDevice) {
         if linkedDeviceIDs.contains(device.id) {
-            linkedDeviceIDs.remove(device.id)
+            removeDevice(deviceID: device.id)
         } else {
+            removedDeviceIDs.remove(device.id)
+            UserDefaults.standard.set(Array(removedDeviceIDs), forKey: removedKey)
             linkedDeviceIDs.insert(device.id)
+            UserDefaults.standard.set(Array(linkedDeviceIDs), forKey: linkedKey)
+            linkedDeviceKeys = linkedDeviceKeys.filter { !$0.contains(":\(device.id):") }
         }
+    }
+
+    func removeDevice(deviceID: String) {
+        linkedDeviceIDs.remove(deviceID)
         UserDefaults.standard.set(Array(linkedDeviceIDs), forKey: linkedKey)
+        removedDeviceIDs.insert(deviceID)
+        UserDefaults.standard.set(Array(removedDeviceIDs), forKey: removedKey)
+        connectedInSession.remove(deviceID)
+        familyDevices.removeAll { $0.id == deviceID }
+        addressCache.removeValue(forKey: deviceID)
+        lastLocations.removeValue(forKey: deviceID)
+        lastUploads.removeValue(forKey: deviceID)
+        lastUploadedStates.removeValue(forKey: deviceID)
+        lastUploadedBPMs.removeValue(forKey: deviceID)
+        linkedDeviceKeys = linkedDeviceKeys.filter { !$0.contains(":\(deviceID):") }
+        
+        guard hasGroup else { return }
+        let code = groupCode
+        Task {
+            do {
+                let payload = FamilyTelemetryPayload(
+                    groupCode: code,
+                    deviceID: deviceID,
+                    displayName: "[REMOVED]",
+                    bpm: 0,
+                    state: 0,
+                    latitude: 0,
+                    longitude: 0,
+                    isLocationShared: false,
+                    isOnline: false,
+                    lastUpdated: Date()
+                )
+                try await apiClient.uploadTelemetry(payload)
+            } catch {
+                print("Failed to notify cloud of removed device: \(error)")
+            }
+        }
     }
 
     func uploadLocalDevices(_ devices: [KnownDevice], statuses: [String: DeviceStatus], fallbackLatitude: Double, fallbackLongitude: Double) {
@@ -109,12 +154,13 @@ final class FamilyDeviceManager: ObservableObject {
         for device in devices where linkedDeviceIDs.contains(device.id) {
             let status = statuses[device.id]
             let online = status?.isConnected == true
+            let existingSnapshot = familyDevices.first(where: { $0.id == device.id })
             if online {
                 connectedInSession.insert(device.id)
             } else {
-                // Only upload an offline transition once if this phone was previously connected;
-                // never let an unconnected phone repeatedly overwrite the wearer's live state/BPM.
-                guard connectedInSession.remove(device.id) != nil else { continue }
+                let wasConnected = connectedInSession.remove(device.id) != nil
+                let cloudThinksOnline = existingSnapshot?.isOnline == true
+                guard wasConnected || cloudThinksOnline else { continue }
             }
             let rawState = online ? (status?.lifeLoopState.state ?? 0) : 0
             let pendingPingWindow = Date().timeIntervalSince(pendingCheckInSentAt[device.id] ?? .distantPast) < 8
@@ -122,11 +168,11 @@ final class FamilyDeviceManager: ObservableObject {
             let currentBPM: Float = online ? (status?.lifeLoopState.bpm ?? 0) : 0
             let stateChanged = lastUploadedStates[device.id] != currentState
             let bpmChanged = lastUploadedBPMs[device.id].map { abs(currentBPM - $0) >= 1.0 } ?? true
+            let onlineChanged = existingSnapshot?.isOnline != online
             guard !uploading.contains(device.id),
-                  stateChanged || bpmChanged || Date().timeIntervalSince(lastUploads[device.id] ?? .distantPast) > 4 else { continue }
+                  stateChanged || bpmChanged || onlineChanged || Date().timeIntervalSince(lastUploads[device.id] ?? .distantPast) > 4 else { continue }
             uploading.insert(device.id)
             let code = groupCode
-            let existingSnapshot = familyDevices.first(where: { $0.id == device.id })
             Task {
                 defer { uploading.remove(device.id); lastUploads[device.id] = Date() }
                 do {
@@ -178,6 +224,7 @@ final class FamilyDeviceManager: ObservableObject {
         defer { isSyncing = false; lastRefresh = Date() }
         do {
             var fetchedDevices = try await apiClient.fetchFamilyDevices(groupCode: groupCode)
+                .filter { !removedDeviceIDs.contains($0.id) && $0.state != -1 && $0.displayName != "[REMOVED]" }
             var checkInsChanged = false
             for index in fetchedDevices.indices {
                 let device = fetchedDevices[index]
@@ -245,8 +292,13 @@ final class FamilyDeviceManager: ObservableObject {
            location.distance(from: previous) < 50 {
             return
         }
+        if let lastAttempt = lastGeocodeAttempts[device.id],
+           Date().timeIntervalSince(lastAttempt) < 60 {
+            return
+        }
         guard !geocodingIDs.contains(device.id) else { return }
         geocodingIDs.insert(device.id)
+        lastGeocodeAttempts[device.id] = Date()
         Task {
             defer { geocodingIDs.remove(device.id) }
             let geocoder = CLGeocoder()
