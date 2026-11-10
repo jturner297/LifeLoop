@@ -177,6 +177,7 @@ struct GroupDetailView: View {
 struct GroupSharingView: View {
     @EnvironmentObject private var bleMonitor: BLEMonitor
     @ObservedObject var manager: FamilyDeviceManager
+    @State private var deviceToRemove: FamilyDeviceSnapshot?
 
     var body: some View {
         Form {
@@ -187,10 +188,64 @@ struct GroupSharingView: View {
                     }))
                 }
                 if bleMonitor.knownDevices.isEmpty { Text("Connect a device in the Devices tab first.") }
-            } header: { Text("Devices shared with this group") } footer: {
-                Text("Profile settings control location and device information for all groups. Turning sharing off stops future updates; it does not delete records already on the server.")
+            } header: { Text("Share my Bluetooth devices") } footer: {
+                Text("Profile settings control location and device information for all groups.")
             }
-        }.loopPage().navigationTitle("Device sharing")
+
+            Section {
+                if manager.familyDevices.isEmpty {
+                    Text("No devices are currently in this family group.")
+                        .foregroundStyle(.secondary)
+                }
+                ForEach(manager.familyDevices) { member in
+                    HStack {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(member.displayName).font(.headline)
+                            if !member.ownerName.isEmpty {
+                                Text(member.ownerName).font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
+                        Spacer()
+                        Button(role: .destructive) {
+                            deviceToRemove = member
+                        } label: {
+                            Label("Remove", systemImage: "trash")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.red)
+                        }
+                        .buttonStyle(.borderless)
+                    }
+                    .swipeActions {
+                        Button("Remove", role: .destructive) {
+                            deviceToRemove = member
+                        }
+                    }
+                }
+            } header: { Text("Devices in this family") } footer: {
+                Text("Remove any device you no longer want shown in this family group.")
+            }
+        }
+        .loopPage()
+        .navigationTitle("Shared devices")
+        .alert(
+            "Remove this device from the family?",
+            isPresented: Binding(
+                get: { deviceToRemove != nil },
+                set: { if !$0 { deviceToRemove = nil } }
+            )
+        ) {
+            Button("Remove", role: .destructive) {
+                if let target = deviceToRemove {
+                    manager.removeDevice(deviceID: target.id)
+                }
+                deviceToRemove = nil
+            }
+            Button("Cancel", role: .cancel) {
+                deviceToRemove = nil
+            }
+        } message: {
+            Text("This will remove \(deviceToRemove?.displayName ?? "the device") from this family group.")
+        }
     }
 }
 
@@ -199,6 +254,7 @@ struct MemberListSection: View {
     @ObservedObject var manager: FamilyDeviceManager
     let title: String
     let search: String
+    @State private var deviceToRemove: FamilyDeviceSnapshot?
 
     private var members: [FamilyDeviceSnapshot] {
         manager.familyDevices.filter { search.isEmpty || $0.displayName.localizedCaseInsensitiveContains(search) || $0.ownerName.localizedCaseInsensitiveContains(search) }
@@ -241,22 +297,62 @@ struct MemberListSection: View {
                 let bpm = latestBPM(for: member)
                 let state = effectiveState(for: member)
                 let bpmLabel = (online && bpm > 0) ? "\(Int(bpm.rounded())) bpm" : "— bpm"
-                NavigationLink {
-                    MemberInfoView(memberID: member.id, manager: manager)
-                } label: {
-                    HStack(spacing: 16) {
-                        ProfileAvatar(name: member.ownerName.isEmpty ? member.displayName : member.ownerName, size: 64)
-                        VStack(alignment: .leading, spacing: 5) {
-                            Text(member.ownerName.isEmpty ? member.displayName : member.ownerName).font(.headline)
-                            Text(member.displayName).font(.caption).foregroundStyle(.secondary)
-                            Text(online ? "\(bpmLabel) · \(state == 0 ? "Normal" : state == 5 ? "Check-in pending" : "Needs attention")" : "Offline")
-                                .font(.subheadline).foregroundStyle(online ? LoopStyle.green : .secondary)
+                HStack(spacing: 12) {
+                    NavigationLink {
+                        MemberInfoView(memberID: member.id, manager: manager)
+                    } label: {
+                        HStack(spacing: 16) {
+                            ProfileAvatar(name: member.ownerName.isEmpty ? member.displayName : member.ownerName, size: 64)
+                            VStack(alignment: .leading, spacing: 5) {
+                                Text(member.ownerName.isEmpty ? member.displayName : member.ownerName).font(.headline)
+                                Text(member.displayName).font(.caption).foregroundStyle(.secondary)
+                                Text(online ? "\(bpmLabel) · \(state == 0 ? "Normal" : state == 5 ? "Check-in pending" : "Needs attention")" : "Offline")
+                                    .font(.subheadline).foregroundStyle(online ? LoopStyle.green : .secondary)
+                            }
+                            Spacer()
+                            Image(systemName: "chevron.right").foregroundStyle(.secondary)
                         }
-                        Spacer()
-                        Image(systemName: "chevron.right").foregroundStyle(.secondary)
-                    }.loopCard()
-                }.buttonStyle(.plain)
+                    }
+                    .buttonStyle(.plain)
+
+                    Button(role: .destructive) {
+                        deviceToRemove = member
+                    } label: {
+                        Image(systemName: "trash")
+                            .foregroundStyle(.red)
+                            .padding(8)
+                    }
+                    .buttonStyle(.borderless)
+                    .accessibilityLabel("Remove \(member.displayName) from family")
+                }
+                .loopCard()
+                .contextMenu {
+                    Button(role: .destructive) {
+                        deviceToRemove = member
+                    } label: {
+                        Label("Remove from family", systemImage: "trash")
+                    }
+                }
             }
+        }
+        .alert(
+            "Remove this device from your family?",
+            isPresented: Binding(
+                get: { deviceToRemove != nil },
+                set: { if !$0 { deviceToRemove = nil } }
+            )
+        ) {
+            Button("Remove", role: .destructive) {
+                if let target = deviceToRemove {
+                    manager.removeDevice(deviceID: target.id)
+                }
+                deviceToRemove = nil
+            }
+            Button("Cancel", role: .cancel) {
+                deviceToRemove = nil
+            }
+        } message: {
+            Text("This will remove \(deviceToRemove?.displayName ?? "the device") from this family group.")
         }
     }
 }
@@ -405,18 +501,35 @@ struct MemberInfoView: View {
                     FamilyAlertsView(manager: manager, deviceID: member.id)
                     Text(manager.syncStatus).font(.footnote).foregroundStyle(.secondary)
 
-                    if manager.linkedDeviceIDs.contains(member.id) {
-                        Button("Remove from this family", role: .destructive) {
-                            removeMemberDevice = true
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 8)
+                    Button(role: .destructive) {
+                        removeMemberDevice = true
+                    } label: {
+                        Label("Remove from this family", systemImage: "trash")
+                            .font(.headline)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 6)
                     }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.red)
+                    .padding(.top, 8)
                 }.padding(24).frame(maxWidth: 720)
             } else {
                 ContentUnavailableView("Member unavailable", systemImage: "person.crop.circle.badge.questionmark")
             }
         }.loopPage().navigationTitle("Member info").navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                if member != nil {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button(role: .destructive) {
+                            removeMemberDevice = true
+                        } label: {
+                            Image(systemName: "trash")
+                                .foregroundStyle(.red)
+                        }
+                        .accessibilityLabel("Remove from this family")
+                    }
+                }
+            }
             .task(id: memberID) {
                 if let member {
                     manager.resolveAddress(for: member)

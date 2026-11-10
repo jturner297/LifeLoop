@@ -13,6 +13,7 @@ struct MemberEvent: Identifiable, Codable {
 final class FamilyDeviceManager: ObservableObject {
     @Published var groupCode: String
     @Published private(set) var linkedDeviceIDs: Set<String>
+    @Published private(set) var removedDeviceIDs: Set<String>
     @Published private(set) var familyDevices: [FamilyDeviceSnapshot] = []
     @Published private(set) var recentEvents: [MemberEvent] = []
     @Published private(set) var alerts: [CloudAlert] = []
@@ -26,6 +27,7 @@ final class FamilyDeviceManager: ObservableObject {
 
     private let apiClient: FamilyAPIClient
     private let linkedKey: String
+    private let removedKey: String
     private let checkInsKey: String
     private var lastRefresh: Date?
     private var lastUploads: [String: Date] = [:]
@@ -51,8 +53,10 @@ final class FamilyDeviceManager: ObservableObject {
         let code = groupCode ?? ""
         self.groupCode = code
         linkedKey = "com.lifeloop.family.linkedDeviceIDs." + code
+        removedKey = "com.lifeloop.family.removedDeviceIDs." + code
         checkInsKey = "checkin.active." + code
         linkedDeviceIDs = Set(UserDefaults.standard.stringArray(forKey: linkedKey) ?? [])
+        removedDeviceIDs = Set(UserDefaults.standard.stringArray(forKey: removedKey) ?? [])
         if let data = UserDefaults.standard.data(forKey: "emergency.active." + code) {
             activeAlert = try? JSONDecoder().decode(CloudAlert.self, from: data)
         }
@@ -98,16 +102,21 @@ final class FamilyDeviceManager: ObservableObject {
 
     func toggleLink(for device: KnownDevice) {
         if linkedDeviceIDs.contains(device.id) {
-            linkedDeviceIDs.remove(device.id)
+            removeDevice(deviceID: device.id)
         } else {
+            removedDeviceIDs.remove(device.id)
+            UserDefaults.standard.set(Array(removedDeviceIDs), forKey: removedKey)
             linkedDeviceIDs.insert(device.id)
+            UserDefaults.standard.set(Array(linkedDeviceIDs), forKey: linkedKey)
+            linkedDeviceKeys = linkedDeviceKeys.filter { !$0.contains(":\(device.id):") }
         }
-        UserDefaults.standard.set(Array(linkedDeviceIDs), forKey: linkedKey)
     }
 
     func removeDevice(deviceID: String) {
         linkedDeviceIDs.remove(deviceID)
         UserDefaults.standard.set(Array(linkedDeviceIDs), forKey: linkedKey)
+        removedDeviceIDs.insert(deviceID)
+        UserDefaults.standard.set(Array(removedDeviceIDs), forKey: removedKey)
         connectedInSession.remove(deviceID)
         familyDevices.removeAll { $0.id == deviceID }
         addressCache.removeValue(forKey: deviceID)
@@ -115,6 +124,7 @@ final class FamilyDeviceManager: ObservableObject {
         lastUploads.removeValue(forKey: deviceID)
         lastUploadedStates.removeValue(forKey: deviceID)
         lastUploadedBPMs.removeValue(forKey: deviceID)
+        linkedDeviceKeys = linkedDeviceKeys.filter { !$0.contains(":\(deviceID):") }
         
         guard hasGroup else { return }
         let code = groupCode
@@ -123,9 +133,9 @@ final class FamilyDeviceManager: ObservableObject {
                 let payload = FamilyTelemetryPayload(
                     groupCode: code,
                     deviceID: deviceID,
-                    displayName: "Offline device",
+                    displayName: "[REMOVED]",
                     bpm: 0,
-                    state: 0,
+                    state: -1,
                     latitude: 0,
                     longitude: 0,
                     isLocationShared: false,
@@ -214,6 +224,7 @@ final class FamilyDeviceManager: ObservableObject {
         defer { isSyncing = false; lastRefresh = Date() }
         do {
             var fetchedDevices = try await apiClient.fetchFamilyDevices(groupCode: groupCode)
+                .filter { !removedDeviceIDs.contains($0.id) && $0.state != -1 && $0.displayName != "[REMOVED]" }
             var checkInsChanged = false
             for index in fetchedDevices.indices {
                 let device = fetchedDevices[index]
