@@ -18,7 +18,6 @@ final class BLEMonitor: NSObject, ObservableObject {
     static let rxCharacteristicUUID = CBUUID(string: "6E400002-B5A3-F393-E0A9-E50E24DCCA9E")
     
     private var rxCharacteristics: [String: CBCharacteristic] = [:]
-    private let locationManager = LocationManager()
     
     @Published private(set) var bluetoothStateText = "Starting Bluetooth…"
     @Published private(set) var isScanning = false
@@ -42,6 +41,7 @@ final class BLEMonitor: NSObject, ObservableObject {
     private var pingSentAt: [String: Date] = [:]
     private var pendingPings: [String: Date] = [:]
     private var pendingCancels: [String: Date] = [:]
+    private var pendingSOS: [String: Date] = [:]
     private let deviceStore = DeviceStore()
     
     // TIMING FIX: Prevents stale telemetry from overriding manual commands
@@ -93,7 +93,7 @@ final class BLEMonitor: NSObject, ObservableObject {
         bluetoothStateText = "Scanning for LifeLoop devices…"
         centralManager.scanForPeripherals(
             withServices: [Self.serviceUUID],
-            options: [CBCentralManagerScanOptionAllowDuplicatesKey: true]
+            options: [CBCentralManagerScanOptionAllowDuplicatesKey: false]
         )
     }
     
@@ -198,6 +198,7 @@ final class BLEMonitor: NSObject, ObservableObject {
         warningDevices.remove(device.id)
         pendingPings.removeValue(forKey: device.id)
         pendingCancels.removeValue(forKey: device.id)
+        pendingSOS.removeValue(forKey: device.id)
         if let peripheral = connectedPeripherals[device.id] {
             centralManager.cancelPeripheralConnection(peripheral)
         }
@@ -287,6 +288,7 @@ final class BLEMonitor: NSObject, ObservableObject {
                     DispatchQueue.main.async {
                         EMSTimerManager.shared.startCountdown(reason: warningReason, deviceID: deviceID)
                     }
+                    self.sendSOSCommand(deviceID: deviceID)
                 } else if warningReason == nil {
                     // A new episode can warn again after recovery; repeated samples cannot
                     // immediately undo the person's explicit cancellation.
@@ -336,6 +338,7 @@ final class BLEMonitor: NSObject, ObservableObject {
             awaitingAppCancellation.insert(id)
             pingSentAt.removeValue(forKey: id)
             pendingPings.removeValue(forKey: id)
+            pendingSOS.removeValue(forKey: id)
             pingActiveDevices.remove(id)
             pendingCancels[id] = now.addingTimeInterval(15)
             flushPendingCancel(deviceID: id)
@@ -377,18 +380,51 @@ final class BLEMonitor: NSObject, ObservableObject {
         log("Sent CANCEL command to device")
     }
 
-    func sendSOSCommand() {
+    func sendSOSCommand(deviceID: String? = nil) {
         lastCommandSentAt = Date()
-        let payload = Data("SOS".utf8)
-        for (id, peripheral) in connectedPeripherals {
-            if let rxChar = rxCharacteristics[id] {
-                pingSentAt.removeValue(forKey: id)
-                pendingPings.removeValue(forKey: id)
-                pingActiveDevices.remove(id)
-                peripheral.writeValue(payload, for: rxChar, type: .withResponse)
-                log("Sent SOS command to device")
-            }
+        let targets: [String]
+        if let deviceID {
+            targets = [deviceID]
+        } else if !connectedPeripherals.isEmpty {
+            targets = Array(connectedPeripherals.keys)
+        } else {
+            targets = knownDevices.map(\.id)
         }
+        for id in targets {
+            pendingSOS[id] = Date().addingTimeInterval(15)
+            flushPendingSOS(deviceID: id)
+        }
+        maintainConnections()
+    }
+
+    private func flushPendingSOS(deviceID: String) {
+        guard let deadline = pendingSOS[deviceID] else { return }
+        guard deadline > Date() else {
+            pendingSOS.removeValue(forKey: deviceID)
+            log("SOS command expired before device was ready.")
+            return
+        }
+        guard let peripheral = connectedPeripherals[deviceID],
+              peripheral.state == .connected else {
+            return
+        }
+        let discoveredRx = peripheral.services?
+            .first(where: { $0.uuid == Self.serviceUUID })?
+            .characteristics?
+            .first(where: { $0.uuid == Self.rxCharacteristicUUID })
+        if let discoveredRx, rxCharacteristics[deviceID] == nil {
+            rxCharacteristics[deviceID] = discoveredRx
+        }
+        guard let rxChar = rxCharacteristics[deviceID] else {
+            return
+        }
+        pendingSOS.removeValue(forKey: deviceID)
+        pingSentAt.removeValue(forKey: deviceID)
+        pendingPings.removeValue(forKey: deviceID)
+        pingActiveDevices.remove(deviceID)
+        let payload = Data("SOS".utf8)
+        peripheral.writeValue(payload, for: rxChar, type: .withResponse)
+        log("Sent SOS command to device")
     }
     
     func sendPingCommand(deviceID: String? = nil) {
@@ -648,6 +684,7 @@ extension BLEMonitor: CBPeripheralDelegate {
             rxCharacteristics[id] = rxChar
             flushPendingCancel(deviceID: id)
             flushPendingPing(deviceID: id)
+            flushPendingSOS(deviceID: id)
         }
     }
 

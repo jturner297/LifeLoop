@@ -37,6 +37,7 @@ final class FamilyDeviceManager: ObservableObject {
     private var uploading: Set<String> = []
     private var geocodingIDs: Set<String> = []
     private var lastLocations: [String: CLLocation] = [:]
+    private var lastGeocodeAttempts: [String: Date] = [:]
     private var pendingInput: StartEmergencyInput?
     private var checkInSubscriptionTask: Task<Void, Never>?
     private var activeCheckInSequence: AmplifyAsyncThrowingSequence<GraphQLSubscriptionEvent<CloudCheckIn>>?
@@ -245,8 +246,13 @@ final class FamilyDeviceManager: ObservableObject {
            location.distance(from: previous) < 50 {
             return
         }
+        if let lastAttempt = lastGeocodeAttempts[device.id],
+           Date().timeIntervalSince(lastAttempt) < 60 {
+            return
+        }
         guard !geocodingIDs.contains(device.id) else { return }
         geocodingIDs.insert(device.id)
+        lastGeocodeAttempts[device.id] = Date()
         Task {
             defer { geocodingIDs.remove(device.id) }
             let geocoder = CLGeocoder()

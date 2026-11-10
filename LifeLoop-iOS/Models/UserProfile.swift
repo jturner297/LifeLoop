@@ -38,12 +38,16 @@ final class UserProfile {
         phone = defaults.string(forKey: "profile.phone") ?? ""
         email = defaults.string(forKey: "profile.email") ?? ""
         contactConsent = defaults.bool(forKey: "profile.contactConsent")
-        groups = defaults.data(forKey: "profile.groups")
+        let cachedGroups = defaults.data(forKey: "profile.groups")
             .flatMap { try? JSONDecoder().decode([LoopGroup].self, from: $0) } ?? []
-        if defaults.data(forKey: "profile.groups") == nil, let legacy = defaults.string(forKey: "com.lifeloop.family.groupCode"), !legacy.isEmpty {
+        if cachedGroups.isEmpty, let legacy = defaults.string(forKey: "com.lifeloop.family.groupCode"), !legacy.isEmpty {
             groups = [LoopGroup(id: legacy, name: "My group")]
+        } else {
+            groups = cachedGroups
         }
-        groups = [] // Membership is authoritative on AWS, never inferred from a saved code.
+        for group in groups {
+            managers[group.id] = FamilyDeviceManager(groupCode: group.id)
+        }
     }
 
     var contactDrafts: [GroupContactDraft] {

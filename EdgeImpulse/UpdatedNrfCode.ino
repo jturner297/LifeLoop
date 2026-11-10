@@ -15,7 +15,7 @@
 #define CHARACTERISTIC_UUID_RX "6E400002-B5A3-F393-E0A9-E50E24DCCA9E" 
 
 BLEService lifeLoopService(SERVICE_UUID);
-BLECharacteristic txCharacteristic(CHARACTERISTIC_UUID_TX, BLENotify | BLERead, 32);
+BLECharacteristic txCharacteristic(CHARACTERISTIC_UUID_TX, BLENotify | BLERead, 48);
 BLECharacteristic rxCharacteristic(CHARACTERISTIC_UUID_RX, BLEWrite | BLEWriteWithoutResponse, 32); 
 
 // ── Hardware Objects ──────────────────────────────────────────────────────────
@@ -56,6 +56,26 @@ int imuBufferIndex = 0;
 
 float magnitude(float x, float y, float z) {
   return sqrt(x*x + y*y + z*z);
+}
+
+// ── Battery Sensing ───────────────────────────────────────────────────────────
+int getBatteryPercentage() {
+#if defined(PIN_VBAT)
+  #if defined(PIN_VBAT_ENABLE)
+    pinMode(PIN_VBAT_ENABLE, OUTPUT);
+    digitalWrite(PIN_VBAT_ENABLE, LOW); // LOW enables battery divider on XIAO nRF52840
+    delayMicroseconds(200);
+  #endif
+  float raw = (float)analogRead(PIN_VBAT);
+  #if defined(PIN_VBAT_ENABLE)
+    digitalWrite(PIN_VBAT_ENABLE, HIGH); // Disable divider to save battery
+  #endif
+  float vbat = (raw * 3.3f / 1024.0f) * 1.515f;
+  int pct = (int)((vbat - 3.2f) / (4.2f - 3.2f) * 100.0f);
+  return constrain(pct, 0, 100);
+#else
+  return 100;
+#endif
 }
 
 // ── Heart Rate Variables (DSP) ────────────────────────────────────────────────
@@ -231,6 +251,7 @@ void loop() {
 
   if (now - lastHrReadTime >= HR_READ_INTERVAL) {
     lastHrReadTime = now;
+    particleSensor.check(); // Flush MAX30105 hardware FIFO into library buffer
     long irRaw = particleSensor.getIR();
     
     if (irRaw < ON_WRIST_IR_THRESHOLD) {
@@ -306,7 +327,17 @@ void loop() {
         digitalWrite(LED_GREEN, HIGH);
         noTone(BUZZER_PIN);   
         ledRedState = true;
-        buttonPressStartTime = 0; 
+        if (digitalRead(BUTTON_PIN) == LOW) {
+          if (buttonPressStartTime == 0) {
+            buttonPressStartTime = now;
+          } else if (now - buttonPressStartTime >= 3000) {
+            fallState = Emergency;
+            buttonPressStartTime = 0;
+            imuBufferIndex = 0;
+          }
+        } else {
+          buttonPressStartTime = 0;
+        }
         
         imuBuffer[imuBufferIndex++] = myIMU.readFloatAccelX() * CONVERT_G_TO_MS2;
         imuBuffer[imuBufferIndex++] = myIMU.readFloatAccelY() * CONVERT_G_TO_MS2;
@@ -511,8 +542,8 @@ void loop() {
     lastSentFallState = fallState;
     lastSentBPM = currentBPM;
     
-    char msg[32];
-    snprintf(msg, sizeof(msg), "BPM:%.1f|State:%d\n", currentBPM, fallState);
+    char msg[48];
+    snprintf(msg, sizeof(msg), "BPM:%.1f|State:%d|Bat:%d\n", currentBPM, fallState, getBatteryPercentage());
 
     if (central && txCharacteristic.subscribed()) {
       txCharacteristic.writeValue(msg);
