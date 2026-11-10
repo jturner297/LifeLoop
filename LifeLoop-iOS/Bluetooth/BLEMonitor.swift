@@ -150,7 +150,8 @@ final class BLEMonitor: NSObject, ObservableObject {
     
     func disconnect(deviceID: String) {
         manuallyDisconnected.insert(deviceID)
-        guard let peripheral = connectedPeripherals[deviceID] else { return }
+        guard centralManager.state == .poweredOn,
+              let peripheral = connectedPeripherals[deviceID] else { return }
         centralManager.cancelPeripheralConnection(peripheral)
     }
     
@@ -161,7 +162,8 @@ final class BLEMonitor: NSObject, ObservableObject {
             let telemetryTimedOut = status.lastUpdated.map { now.timeIntervalSince($0) > timeout } ?? false
             
             if peripheralDisconnected || telemetryTimedOut {
-                if let peripheral = connectedPeripherals[id], peripheral.state == .connected {
+                if centralManager.state == .poweredOn,
+                   let peripheral = connectedPeripherals[id], peripheral.state == .connected {
                     centralManager.cancelPeripheralConnection(peripheral)
                 }
                 updateStatus(for: id) { updatedStatus in
@@ -200,7 +202,8 @@ final class BLEMonitor: NSObject, ObservableObject {
         pendingCancels.removeValue(forKey: device.id)
         pendingSOS.removeValue(forKey: device.id)
         manuallyDisconnected.insert(device.id)
-        if let peripheral = connectedPeripherals.removeValue(forKey: device.id) {
+        if let peripheral = connectedPeripherals.removeValue(forKey: device.id),
+           centralManager.state == .poweredOn {
             centralManager.cancelPeripheralConnection(peripheral)
         }
         txCharacteristics.removeValue(forKey: device.id)
@@ -643,7 +646,9 @@ extension BLEMonitor: CBCentralManagerDelegate {
         for peripheral in peripherals {
             let id = peripheral.identifier.uuidString
             guard knownDevices.contains(where: { $0.id == id }) else {
-                central.cancelPeripheralConnection(peripheral)
+                if central.state == .poweredOn {
+                    central.cancelPeripheralConnection(peripheral)
+                }
                 continue
             }
             guard peripheral.state == .connected || peripheral.state == .connecting else { continue }

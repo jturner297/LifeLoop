@@ -135,7 +135,7 @@ final class FamilyDeviceManager: ObservableObject {
                     deviceID: deviceID,
                     displayName: "[REMOVED]",
                     bpm: 0,
-                    state: -1,
+                    state: 0,
                     latitude: 0,
                     longitude: 0,
                     isLocationShared: false,
