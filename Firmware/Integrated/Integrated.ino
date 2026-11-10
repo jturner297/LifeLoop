@@ -5,11 +5,8 @@
 #include <math.h>
 
 // ── Hardware Definitions ──────────────────────────────────────────────────────
-// NOTE: If testing on the PCB from the schematic where SW1=D3 and U3=D1, 
-// swap BUTTON_PIN to D3 and BUZZER_PIN to D1.
 #define BUTTON_PIN D3
 #define MOTOR_PIN  D2         // MOSFET Gate for Vibration Motor
-#define BUZZER_PIN A3         // Passive Buzzer Pin
 
 // ── Battery Settings ──────────────────────────────────────────────────────────
 #define ADC_MAX             4095.0f
@@ -45,7 +42,7 @@ const unsigned long STILLNESS_EMERGENCY_TH = 6000;
 const unsigned long CANCEL_HOLD_TIME       = 2000; 
 
 enum FallDetection { Normal, Free_Falling, Impact, Recovering, Emergency };
-FallDetection fallState = Emergency;
+FallDetection fallState = Normal;
 
 unsigned long fallStartTime = 0;
 unsigned long impactTime = 0;
@@ -183,12 +180,8 @@ void setup() {
   pinMode(BUTTON_PIN, INPUT_PULLUP);
   
   // Initialize Vibration Motor (Active-High via N-Channel MOSFET)
-  pinMode(MOTOR_PIN, INPUT);
+  pinMode(MOTOR_PIN, OUTPUT);
   digitalWrite(MOTOR_PIN, LOW); // Ensure motor starts OFF
-
-  // Initialize Buzzer
-  pinMode(BUZZER_PIN, OUTPUT);
-  noTone(BUZZER_PIN); // Ensure it starts quiet using noTone()
 
   // Battery ADC setup
   pinMode(PIN_VBAT_ENABLE, OUTPUT);
@@ -300,7 +293,6 @@ void loop() {
         digitalWrite(LED_BLUE, LOW);  
         digitalWrite(LED_RED, HIGH);
         digitalWrite(LED_GREEN, HIGH);
-        noTone(BUZZER_PIN);             // Silence the buzzer
         digitalWrite(MOTOR_PIN, LOW);   // Turn off the vibration motor
         ledRedState = true;
         buttonPressStartTime = 0; 
@@ -349,7 +341,6 @@ void loop() {
           } else if (now - buttonPressStartTime >= CANCEL_HOLD_TIME) {
             fallState = Normal; 
             digitalWrite(MOTOR_PIN, LOW);
-            noTone(BUZZER_PIN);
             buttonPressStartTime = 0;
           }
         } else {
@@ -372,10 +363,8 @@ void loop() {
           digitalWrite(LED_RED, ledRedState ? HIGH : LOW);
           
           if (!ledRedState) {
-            tone(BUZZER_PIN, 3000); 
             digitalWrite(MOTOR_PIN, HIGH); // Turn motor ON
           } else {
-            noTone(BUZZER_PIN);
             digitalWrite(MOTOR_PIN, LOW);  // Turn motor OFF
           }
         }
@@ -386,7 +375,6 @@ void loop() {
           } else if (now - buttonPressStartTime >= CANCEL_HOLD_TIME) {
             fallState = Normal; 
             digitalWrite(MOTOR_PIN, LOW); // Force motor OFF immediately
-            noTone(BUZZER_PIN);           // Force buzzer OFF immediately
             buttonPressStartTime = 0;
           }
         } else {
@@ -410,7 +398,6 @@ void loop() {
     if (command == "CANCEL") {
       fallState = Normal;
       digitalWrite(MOTOR_PIN, LOW);   // Force motor pin LOW immediately upon BLE cancel
-      noTone(BUZZER_PIN);             // Force buzzer OFF immediately upon BLE cancel
       buttonPressStartTime = 0;
     }
   }
