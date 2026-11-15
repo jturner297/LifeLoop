@@ -10,6 +10,7 @@ struct AccountSetupView: View {
     @State private var password = ""
     @State private var code = ""
     @State private var creating = false
+    @State private var selectedSignUpRole: AppRole = .family
     @State private var step = "credentials"
     @State private var busy = false
     @State private var message: String?
@@ -73,7 +74,7 @@ struct AccountSetupView: View {
                 }
                 if profile.isSignedIn {
                     Section {
-                        Label("Signed in", systemImage: "checkmark.circle.fill")
+                        Label("Signed in (\(profile.accountRole.title))", systemImage: "checkmark.circle.fill")
                         Button("Continue") { finish() }
                         Button("Sign out", role: .destructive) {
                             run {
@@ -100,6 +101,7 @@ struct AccountSetupView: View {
                             SecureField("Password", text: $password).textContentType(creating ? .newPassword : .password)
                             if creating {
                                 passwordChecklistView
+                                roleSelectionView
                             }
                             Button(creating ? "Create account" : "Sign in") { run { try await submit() } }
                                 .disabled(username.isEmpty || password.isEmpty)
@@ -134,8 +136,12 @@ struct AccountSetupView: View {
                         }
                     }.disabled(busy)
                     Section {
-                        Button("Continue without an account") { skipped = true; finish() }.disabled(busy)
-                        Text("You can use Bluetooth features without an account. Family sharing requires sign-in to the configured family service.")
+                        Button("Continue without an account (Wearer Mode)") {
+                            profile.accountRole = .wearer
+                            skipped = true
+                            finish()
+                        }.disabled(busy)
+                        Text("You can use Bluetooth watch features without an account in Wearer Mode. Family sharing and caregiver monitoring require sign-in.")
                             .font(.footnote).foregroundStyle(.secondary)
                     }
                 }
@@ -175,6 +181,46 @@ struct AccountSetupView: View {
                         .font(.caption)
                         .foregroundStyle(textColor)
                 }
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    private var roleSelectionView: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Account Type (Locked to this login):")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+            ForEach(AppRole.allCases, id: \.rawValue) { role in
+                let isSelected = selectedSignUpRole == role
+                Button {
+                    selectedSignUpRole = role
+                } label: {
+                    HStack(alignment: .top, spacing: 12) {
+                        Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                            .font(.title3)
+                            .foregroundStyle(isSelected ? LoopStyle.green : .secondary)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(role.title)
+                                .font(.subheadline.bold())
+                                .foregroundStyle(LoopStyle.ink)
+                            Text(role.subtitle)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                    }
+                    .padding(12)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(isSelected ? LoopStyle.mint.opacity(0.6) : Color(.secondarySystemBackground))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .stroke(isSelected ? LoopStyle.green : Color.clear, lineWidth: 1.5)
+                    )
+                }
+                .buttonStyle(.plain)
             }
         }
         .padding(.vertical, 4)
@@ -224,8 +270,19 @@ struct AccountSetupView: View {
     private func submit() async throws {
         if creating {
             try validatePasswordRequirements()
-            let options = AuthSignUpRequest.Options(userAttributes: [AuthUserAttribute(.email, value: username)])
-            let result = try await Amplify.Auth.signUp(username: username, password: password, options: options)
+            profile.setPendingSignUpRole(selectedSignUpRole, for: username)
+            var result: AuthSignUpResult
+            do {
+                let options = AuthSignUpRequest.Options(userAttributes: [
+                    AuthUserAttribute(.email, value: username),
+                    AuthUserAttribute(.profile, value: selectedSignUpRole.rawValue)
+                ])
+                result = try await Amplify.Auth.signUp(username: username, password: password, options: options)
+            } catch {
+                // Fallback if the Cognito pool schema does not have the optional profile attribute enabled
+                let fallbackOptions = AuthSignUpRequest.Options(userAttributes: [AuthUserAttribute(.email, value: username)])
+                result = try await Amplify.Auth.signUp(username: username, password: password, options: fallbackOptions)
+            }
             if result.isSignUpComplete {
                 creating = false
                 isErrorMessage = false
