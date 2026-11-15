@@ -2,6 +2,25 @@ import Foundation
 import Observation
 import Amplify
 
+enum AppRole: String, Codable, CaseIterable {
+    case wearer = "wearer"
+    case family = "family"
+
+    var title: String {
+        switch self {
+        case .wearer: return "Watch Wearer"
+        case .family: return "Caretaker / Family"
+        }
+    }
+
+    var subtitle: String {
+        switch self {
+        case .wearer: return "Simple screen for checking battery, turning watch on/off, and canceling alerts."
+        case .family: return "Full dashboard for monitoring family devices, maps, and emergency contacts."
+        }
+    }
+}
+
 struct LoopGroup: Identifiable, Codable, Equatable {
     var id: String
     var name: String
@@ -24,6 +43,7 @@ final class UserProfile {
     var email: String { didSet { save() } }
     var contactConsent: Bool { didSet { save() } }
     var groups: [LoopGroup] { didSet { save() } }
+    var accountRole: AppRole { didSet { saveRole() } }
     private(set) var memberships: [CloudMember] = []
     private(set) var isSignedIn = false
     private(set) var currentUserID: String?
@@ -38,6 +58,7 @@ final class UserProfile {
         phone = defaults.string(forKey: "profile.phone") ?? ""
         email = defaults.string(forKey: "profile.email") ?? ""
         contactConsent = defaults.bool(forKey: "profile.contactConsent")
+        accountRole = AppRole(rawValue: defaults.string(forKey: "userRole") ?? "") ?? .family
         let cachedGroups = defaults.data(forKey: "profile.groups")
             .flatMap { try? JSONDecoder().decode([LoopGroup].self, from: $0) } ?? []
         if cachedGroups.isEmpty, let legacy = defaults.string(forKey: "com.lifeloop.family.groupCode"), !legacy.isEmpty {
@@ -82,6 +103,7 @@ final class UserProfile {
             }
             currentUserID = user.userId
             UserDefaults.standard.set(user.userId, forKey: "cloud.lastUserID")
+            await resolveAccountRole(for: user.userId, username: user.username)
             let fetched = try await FamilyAPIClient.shared.myFamilies()
             memberships = fetched
             let savedNames = UserDefaults.standard.dictionary(forKey: "group.nicknames") as? [String: String] ?? [:]
@@ -153,5 +175,54 @@ final class UserProfile {
         defaults.set(contactConsent, forKey: "profile.contactConsent")
         defaults.set(try? JSONEncoder().encode(groups), forKey: "profile.groups")
         defaults.set(try? JSONEncoder().encode(contactDrafts), forKey: "profile.contactDrafts")
+    }
+
+    func setPendingSignUpRole(_ role: AppRole, for email: String) {
+        let normalized = email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        var map = UserDefaults.standard.dictionary(forKey: "account.rolesByEmail") as? [String: String] ?? [:]
+        map[normalized] = role.rawValue
+        UserDefaults.standard.set(map, forKey: "account.rolesByEmail")
+        accountRole = role
+    }
+
+    private func saveRole() {
+        let defaults = UserDefaults.standard
+        defaults.set(accountRole.rawValue, forKey: "userRole")
+        if let userID = currentUserID {
+            var idMap = defaults.dictionary(forKey: "account.rolesByUserID") as? [String: String] ?? [:]
+            idMap[userID] = accountRole.rawValue
+            defaults.set(idMap, forKey: "account.rolesByUserID")
+        }
+    }
+
+    private func resolveAccountRole(for userID: String, username: String) async {
+        let defaults = UserDefaults.standard
+        var emailAttr = username.lowercased()
+        if let attributes = try? await Amplify.Auth.fetchUserAttributes() {
+            if let foundEmail = attributes.first(where: { $0.key == .email })?.value.lowercased() {
+                emailAttr = foundEmail
+            }
+            if let profileAttr = attributes.first(where: { $0.key == .profile })?.value,
+               let cognitoRole = AppRole(rawValue: profileAttr.lowercased()) {
+                accountRole = cognitoRole
+                return
+            }
+        }
+        let idMap = defaults.dictionary(forKey: "account.rolesByUserID") as? [String: String] ?? [:]
+        if let savedRoleStr = idMap[userID], let savedRole = AppRole(rawValue: savedRoleStr) {
+            accountRole = savedRole
+            return
+        }
+        let emailMap = defaults.dictionary(forKey: "account.rolesByEmail") as? [String: String] ?? [:]
+        if let savedEmailRoleStr = emailMap[emailAttr], let savedEmailRole = AppRole(rawValue: savedEmailRoleStr) {
+            accountRole = savedEmailRole
+            _ = try? await Amplify.Auth.update(userAttribute: AuthUserAttribute(.profile, value: savedEmailRole.rawValue))
+            return
+        }
+        if emailAttr.contains("wearer") {
+            accountRole = .wearer
+        } else {
+            accountRole = .family
+        }
     }
 }

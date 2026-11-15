@@ -137,6 +137,19 @@ final class FamilyAPIClient {
 
     private init() {}
 
+    func myPhoneNumber() async throws -> AccountPhoneRecord? {
+        try await execute("myPhoneNumber", fields: "userID phoneNumber updatedAt verificationStatus")
+    }
+
+    func saveMyPhoneNumber(_ phoneNumber: String) async throws -> AccountPhoneRecord {
+        try await execute("saveMyPhoneNumber",
+            declaration: "($phone: String!)",
+            arguments: "(phoneNumber: $phone)",
+            variables: ["phone": phoneNumber],
+            fields: "userID phoneNumber updatedAt verificationStatus",
+            mutation: true)
+    }
+
     // Variables preserve quotes, newlines, and Unicode without interpolating user input into GraphQL.
     private func execute<T: Decodable>(_ field: String, declaration: String = "", arguments: String = "", variables: [String: Any] = [:], fields: String, mutation: Bool = false) async throws -> T {
         let document = "\(mutation ? "mutation" : "query") Operation\(declaration) { \(field)\(arguments) { \(fields) } }"

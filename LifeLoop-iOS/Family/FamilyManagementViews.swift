@@ -99,7 +99,7 @@ struct FamilyContactsView: View {
                     Label("For Family & Caregivers Only", systemImage: "person.2.wave.2.fill")
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(LoopStyle.green)
-                    Text("These phone numbers receive an automated emergency call if a fall or SOS alert is not canceled within the 30-second countdown. Enter the phone numbers of family members or caregivers—do not enter the watch wearer's own phone number.")
+                    Text("Save the family members and caregivers who should receive emergency calls. Contacts do not need the app. Save your own account number in Settings. Excluding it from your own emergency also requires the calling service to use that account number.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
@@ -109,7 +109,8 @@ struct FamilyContactsView: View {
                     Button { editing = contact } label: {
                         VStack(alignment: .leading, spacing: 5) {
                             Text(contact.name).font(.headline)
-                            Text(contact.phoneNumber).foregroundStyle(.secondary)
+                            Text(PhoneNumberText.display(contact.phoneNumber))
+                                .font(.body.monospacedDigit()).foregroundStyle(.secondary)
                         }
                     }
                     .swipeActions {
@@ -153,7 +154,7 @@ struct ContactEditor: View {
 
     private var valid: Bool {
         !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-        phone.range(of: #"^\+[1-9]\d{7,14}$"#, options: .regularExpression) != nil && consent
+        PhoneNumberText.isValid(phone) && consent
     }
 
     private var isOwnPhoneWarning: Bool {
@@ -168,14 +169,14 @@ struct ContactEditor: View {
         NavigationStack {
             Form {
                 Section {
-                    Label("Add a family member or caregiver's number—not the watch wearer's own phone number. This number is called automatically after the 30-second emergency countdown.", systemImage: "phone.arrow.up.right.fill")
+                    Label("Add someone who should receive calls about this family’s emergencies. They do not need a LifeLoop account.", systemImage: "phone.arrow.up.right.fill")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
                 TextField("Family member / caregiver name", text: $name)
-                TextField("Phone, e.g. +15551234567", text: $phone).keyboardType(.phonePad)
+                PhoneNumberField(phone: $phone)
                 if isOwnPhoneWarning {
-                    Label("This matches the phone number on your profile. If you are the watch wearer, adding your own number means you will receive the emergency call.", systemImage: "exclamationmark.triangle.fill")
+                    Label("This matches your local phone draft. Saving a number on this device does not exclude it from emergency calls. Call routing must also be configured in the service.", systemImage: "exclamationmark.triangle.fill")
                         .font(.caption)
                         .foregroundStyle(.orange)
                 }
