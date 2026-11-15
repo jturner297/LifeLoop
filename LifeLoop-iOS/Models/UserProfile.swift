@@ -60,7 +60,11 @@ final class UserProfile {
         do {
             let session = try await Amplify.Auth.fetchAuthSession()
             isSignedIn = session.isSignedIn
+            UserDefaults.standard.set(session.isSignedIn, forKey: "cloud.isSignedIn")
             guard session.isSignedIn else {
+                for manager in managers.values {
+                    manager.pauseCloudSubscriptions()
+                }
                 memberships = []
                 groups = []
                 managers = [:]
@@ -70,6 +74,9 @@ final class UserProfile {
             }
             let user = try await Amplify.Auth.getCurrentUser()
             if UserDefaults.standard.string(forKey: "cloud.lastUserID") != user.userId {
+                for manager in managers.values {
+                    manager.pauseCloudSubscriptions()
+                }
                 managers = [:]
                 LoopNotifications.shared.resetForAccountChange()
             }
@@ -80,9 +87,16 @@ final class UserProfile {
             let savedNames = UserDefaults.standard.dictionary(forKey: "group.nicknames") as? [String: String] ?? [:]
             groups = fetched.map { LoopGroup(id: $0.groupCode, name: savedNames[$0.groupCode] ?? "Family " + $0.groupCode) }
             let codes = Set(groups.map(\.id))
+            for (code, manager) in managers where !codes.contains(code) {
+                manager.pauseCloudSubscriptions()
+            }
             managers = managers.filter { codes.contains($0.key) }
             for group in groups where managers[group.id] == nil {
                 managers[group.id] = FamilyDeviceManager(groupCode: group.id)
+            }
+            for manager in managers.values {
+                manager.ensureCheckInSubscription()
+                manager.ensureAlertSubscription()
             }
             cloudStatus = "Families are up to date."
         } catch { cloudStatus = error.localizedDescription }
