@@ -42,6 +42,7 @@ final class BLEMonitor: NSObject, ObservableObject {
     private var pendingPings: [String: Date] = [:]
     private var pendingCancels: [String: Date] = [:]
     private var pendingSOS: [String: Date] = [:]
+    private var pendingPowerCommands: [String: (command: String, deadline: Date)] = [:]
     private let deviceStore = DeviceStore()
     
     // TIMING FIX: Prevents stale telemetry from overriding manual commands
@@ -201,6 +202,7 @@ final class BLEMonitor: NSObject, ObservableObject {
         pendingPings.removeValue(forKey: device.id)
         pendingCancels.removeValue(forKey: device.id)
         pendingSOS.removeValue(forKey: device.id)
+        pendingPowerCommands.removeValue(forKey: device.id)
         manuallyDisconnected.insert(device.id)
         if let peripheral = connectedPeripherals.removeValue(forKey: device.id),
            centralManager.state == .poweredOn {
@@ -477,6 +479,58 @@ final class BLEMonitor: NSObject, ObservableObject {
         log("PING written to device \(deviceID); waiting for its check-in state")
     }
 
+    func sendSleepCommand(deviceID: String) {
+        lastCommandSentAt = Date()
+        pendingPowerCommands[deviceID] = (command: "SLEEP", deadline: Date().addingTimeInterval(15))
+        flushPendingPowerCommand(deviceID: deviceID)
+        maintainConnections()
+    }
+
+    func sendWakeCommand(deviceID: String) {
+        lastCommandSentAt = Date()
+        pendingPowerCommands[deviceID] = (command: "WAKE", deadline: Date().addingTimeInterval(15))
+        flushPendingPowerCommand(deviceID: deviceID)
+        maintainConnections()
+    }
+
+    private func flushPendingPowerCommand(deviceID: String) {
+        guard let pending = pendingPowerCommands[deviceID] else { return }
+        guard pending.deadline > Date() else {
+            pendingPowerCommands.removeValue(forKey: deviceID)
+            log("\(pending.command) command expired before device was ready.")
+            return
+        }
+        guard let peripheral = connectedPeripherals[deviceID],
+              peripheral.state == .connected else {
+            return
+        }
+        let discoveredRx = peripheral.services?
+            .first(where: { $0.uuid == Self.serviceUUID })?
+            .characteristics?
+            .first(where: { $0.uuid == Self.rxCharacteristicUUID })
+        if let discoveredRx, rxCharacteristics[deviceID] == nil {
+            rxCharacteristics[deviceID] = discoveredRx
+        }
+        guard let rxChar = rxCharacteristics[deviceID] else {
+            return
+        }
+        pendingPowerCommands.removeValue(forKey: deviceID)
+        let payload = Data(pending.command.utf8)
+        peripheral.writeValue(payload, for: rxChar, type: .withResponse)
+        updateStatus(for: deviceID) { status in
+            if pending.command == "SLEEP" {
+                status.lifeLoopState.state = 6
+                status.lifeLoopState.bpm = 0
+            } else if pending.command == "WAKE" {
+                status.lifeLoopState.state = 0
+            }
+            DispatchQueue.main.async {
+                self.pingAckSequence += 1
+            }
+        }
+        log("Sent \(pending.command) command to device")
+    }
+
     private func parse(_ cleaned: String, fallback: LifeLoopState) -> LifeLoopState? {
         if let jsonData = cleaned.data(using: .utf8),
            let object = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any] {
@@ -693,6 +747,7 @@ extension BLEMonitor: CBPeripheralDelegate {
             flushPendingCancel(deviceID: id)
             flushPendingPing(deviceID: id)
             flushPendingSOS(deviceID: id)
+            flushPendingPowerCommand(deviceID: id)
         }
     }
 

@@ -13,6 +13,7 @@ struct ContentView: View {
     @State private var search = ""
     @State private var filter = 0
     @State private var addDevice = false
+    @State private var showQuickStart = false
     @State private var selectedDevice: KnownDevice?
     @State private var emergencyDeliveryMessage = "Sending an alert to your connected family…"
     @State private var emergencyDeliveryTitle = "Sending alert"
@@ -40,6 +41,12 @@ struct ContentView: View {
         .tint(LoopStyle.green)
         .sheet(isPresented: $addDevice) {
             AddDeviceSheet(bleMonitor: bleMonitor, background: LoopStyle.background, surface: .white, primaryText: LoopStyle.ink, secondaryText: .secondary, teal: LoopStyle.green)
+        }
+        .sheet(isPresented: $showQuickStart) {
+            QuickStartGuideSheet(
+                onConnectDevice: { addDevice = true },
+                onOpenGroups: { tab = 2 }
+            )
         }
         .sheet(item: $selectedDevice) { device in
             DeviceProfileSheet(
@@ -161,6 +168,12 @@ struct ContentView: View {
                         Text(profile.name).font(.title2.bold())
                     }
                     Spacer()
+                    Button { showQuickStart = true } label: {
+                        Image(systemName: "questionmark.circle.fill")
+                            .font(.title2)
+                            .foregroundStyle(LoopStyle.green)
+                    }
+                    .accessibilityLabel("Quick Start Guide")
                     Button { tab = 3 } label: { ProfileAvatar(name: profile.name) }
                         .accessibilityLabel("Open profile")
                 }
@@ -230,27 +243,56 @@ struct ContentView: View {
         }
         ForEach(matchingDevices) { device in
             let status = bleMonitor.deviceStatuses[device.id]
+            let isSleeping = status?.lifeLoopState.state == 6
             Button { selectedDevice = device } label: {
                 HStack(spacing: 16) {
-                    Image(systemName: "wave.3.right")
-                        .font(.title2).foregroundStyle(LoopStyle.green)
+                    Image(systemName: isSleeping ? "moon.zzz.fill" : "wave.3.right")
+                        .font(.title2).foregroundStyle(isSleeping ? .indigo : LoopStyle.green)
                         .frame(width: 64, height: 72)
                         .background(LoopStyle.mint, in: RoundedRectangle(cornerRadius: 16))
                     VStack(alignment: .leading, spacing: 6) {
                         Text(status?.name ?? device.name).font(.headline)
-                        Text(status?.isConnected == true ? "\(Int(status?.lifeLoopState.bpm ?? 0)) bpm" : "—").font(.subheadline)
-                        Text(status?.isConnected == true ? "Connected" : status?.isConnecting == true ? "Connecting…" : "Offline")
-                            .font(.caption).foregroundStyle(.secondary)
+                        Text(status?.isConnected == true ? (isSleeping ? "Sleeping" : "\(Int(status?.lifeLoopState.bpm ?? 0)) bpm") : "—").font(.subheadline)
+                        Text(status?.isConnected == true ? (isSleeping ? "Connected · Sleep Mode" : "Connected") : status?.isConnecting == true ? "Connecting…" : "Offline")
+                            .font(.caption).foregroundStyle(isSleeping ? .indigo : .secondary)
                         if let status, status.isConnected, status.lifeLoopState.battery <= 10 {
                             Label("Battery low · \(status.lifeLoopState.battery)%", systemImage: "battery.0").font(.caption).foregroundStyle(.red)
                         }
                     }
                     Spacer()
+                    if status?.isConnected == true {
+                        Button {
+                            if isSleeping {
+                                bleMonitor.sendWakeCommand(deviceID: device.id)
+                            } else {
+                                bleMonitor.sendSleepCommand(deviceID: device.id)
+                            }
+                        } label: {
+                            Image(systemName: isSleeping ? "sun.max.fill" : "moon.zzz.fill")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(isSleeping ? LoopStyle.green : .indigo)
+                                .padding(10)
+                                .background((isSleeping ? LoopStyle.green : Color.indigo).opacity(0.12), in: Circle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(isSleeping ? "Wake Up Device" : "Put Device to Sleep")
+                    }
                     Image(systemName: "chevron.right").foregroundStyle(.secondary)
                 }.loopCard()
             }
             .buttonStyle(.plain)
             .contextMenu {
+                if status?.isConnected == true {
+                    Button {
+                        if isSleeping {
+                            bleMonitor.sendWakeCommand(deviceID: device.id)
+                        } else {
+                            bleMonitor.sendSleepCommand(deviceID: device.id)
+                        }
+                    } label: {
+                        Label(isSleeping ? "Wake Up Device" : "Put Device to Sleep", systemImage: isSleeping ? "sun.max.fill" : "moon.zzz.fill")
+                    }
+                }
                 Button(role: .destructive) {
                     removeDevice(device)
                 } label: {
@@ -466,6 +508,16 @@ struct DeviceProfileSheet: View {
                     }
                     .disabled(status.isConnecting)
                     .listRowBackground(surface)
+
+                    Button(action: toggleSleepWake) {
+                        Label(
+                            isSleeping ? "Wake Up Device" : "Put Device to Sleep",
+                            systemImage: isSleeping ? "sun.max.fill" : "moon.zzz.fill"
+                        )
+                    }
+                    .foregroundStyle(isSleeping ? teal : .indigo)
+                    .disabled(!status.isConnected)
+                    .listRowBackground(surface)
                 }
 
                 Section("Location") {
@@ -476,7 +528,7 @@ struct DeviceProfileSheet: View {
                 Section("Device information") {
                     telemetryRow(title: "Battery", value: status.lastUpdated == nil ? "—" : "\(status.lifeLoopState.battery)%")
                     telemetryRow(title: "BPM", value: bpmText)
-                    telemetryRow(title: "State", value: "\(status.lifeLoopState.state)")
+                    telemetryRow(title: "State", value: stateDescription)
                     telemetryRow(title: "Latitude", value: coordinateText(status.lifeLoopState.latitude))
                     telemetryRow(title: "Longitude", value: coordinateText(status.lifeLoopState.longitude))
                     telemetryRow(title: "Last Update", value: lastUpdatedText)
@@ -553,12 +605,29 @@ struct DeviceProfileSheet: View {
 
     private var statusText: String {
         if status.isConnecting { return "Connecting" }
-        if status.isConnected { return "Connected" }
+        if status.isConnected {
+            return isSleeping ? "Connected · Sleep Mode" : "Connected"
+        }
         return "Offline"
     }
 
+    private var isSleeping: Bool {
+        status.lifeLoopState.state == 6
+    }
+
+    private var stateDescription: String {
+        switch status.lifeLoopState.state {
+        case 0: return "0 (Normal)"
+        case 3: return "3 (Recovering)"
+        case 4: return "4 (Emergency)"
+        case 5: return "5 (Check-In Ping)"
+        case 6: return "6 (Sleep Mode)"
+        default: return "\(status.lifeLoopState.state)"
+        }
+    }
+
     private var statusColor: Color {
-        if status.isConnected { return teal }
+        if status.isConnected { return isSleeping ? .indigo : teal }
         if status.isConnecting { return warning }
         return secondaryText
     }
@@ -602,6 +671,14 @@ struct DeviceProfileSheet: View {
             bleMonitor.disconnect(deviceID: device.id)
         } else {
             bleMonitor.connect(toKnown: currentDevice ?? device)
+        }
+    }
+
+    private func toggleSleepWake() {
+        if isSleeping {
+            bleMonitor.sendWakeCommand(deviceID: device.id)
+        } else {
+            bleMonitor.sendSleepCommand(deviceID: device.id)
         }
     }
 }

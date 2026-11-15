@@ -3,6 +3,7 @@ import UserNotifications
 
 struct ProfileView: View {
     @Environment(UserProfile.self) private var profile
+    @State private var showQuickStart = false
 
     var body: some View {
         ScrollView {
@@ -23,10 +24,15 @@ struct ProfileView: View {
                     Divider()
                     NavigationLink { NotificationsView() } label: { profileRow("Notifications", icon: "bell") }
                     Divider()
+                    Button { showQuickStart = true } label: { profileRow("Quick Start Guide", icon: "sparkles") }
+                    Divider()
                     NavigationLink { SettingsView() } label: { profileRow("Settings", icon: "slider.horizontal.3") }
                 }.padding(.horizontal, 18).background(.white, in: RoundedRectangle(cornerRadius: 24))
             }.padding(24).frame(maxWidth: 650)
         }.loopPage().navigationTitle("Profile").navigationBarTitleDisplayMode(.inline)
+            .sheet(isPresented: $showQuickStart) {
+                QuickStartGuideSheet()
+            }
     }
 
     private func profileRow(_ title: String, icon: String) -> some View {

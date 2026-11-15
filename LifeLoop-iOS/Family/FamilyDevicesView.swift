@@ -493,7 +493,7 @@ struct MemberInfoView: View {
                     MemberMap(name: member.displayName, latitude: member.latitude, longitude: member.longitude, shared: member.isLocationShared)
                     Text("Latest update").font(.title3.bold())
                     VStack(alignment: .leading, spacing: 8) {
-                        Text(state == 4 ? "EMERGENCY" : state == 5 ? "CHECK-IN PING ACTIVE" : state == 2 ? "FALL DETECTED" : state == 0 ? "Normal" : "Device state \(state)").font(.headline)
+                        Text(state == 4 ? "EMERGENCY" : state == 5 ? "CHECK-IN PING ACTIVE" : state == 6 ? "Sleep Mode" : state == 2 ? "FALL DETECTED" : state == 0 ? "Normal" : "Device state \(state)").font(.headline)
                         if let updated = member.lastUpdated {
                             Text(updated, format: .dateTime.month().day().year().hour().minute()).foregroundStyle(.secondary)
                         } else { Text("No update received").foregroundStyle(.secondary) }
