@@ -41,8 +41,8 @@ unsigned long activeSamples = 0;
 const unsigned long OBSERVATION_WINDOW     = 4000; 
 const unsigned long CANCEL_HOLD_TIME       = 2000; 
 
-// Added Ping (5) to the state machine
-enum FallDetection { Normal = 0, Recovering = 3, Emergency = 4, Ping = 5 };
+// Added Ping (5) and Sleeping (6) to the state machine
+enum FallDetection { Normal = 0, Recovering = 3, Emergency = 4, Ping = 5, Sleeping = 6 };
 FallDetection fallState = Normal;
 
 unsigned long observationStartTime = 0;
@@ -249,7 +249,7 @@ void loop() {
   BLEDevice central = BLE.central();
   unsigned long now = millis();
 
-  if (now - lastHrReadTime >= HR_READ_INTERVAL) {
+  if (fallState != Sleeping && now - lastHrReadTime >= HR_READ_INTERVAL) {
     lastHrReadTime = now;
     particleSensor.check(); // Flush MAX30105 hardware FIFO into library buffer
     long irRaw = particleSensor.getIR();
@@ -486,6 +486,13 @@ void loop() {
           buttonPressStartTime = 0; 
         }
         break;
+
+      case Sleeping:
+        digitalWrite(LED_RED, HIGH);
+        digitalWrite(LED_GREEN, HIGH);
+        digitalWrite(LED_BLUE, HIGH);
+        noTone(BUZZER_PIN);
+        break;
     }
   }
 
@@ -501,6 +508,9 @@ void loop() {
     command.trim(); 
     
     if (command == "CANCEL") {
+      if (fallState == Sleeping) {
+        particleSensor.wakeUp();
+      }
       fallState = Normal;
       buttonPressStartTime = 0;
       imuBufferIndex = 0;
@@ -510,6 +520,9 @@ void loop() {
       digitalWrite(LED_RED, HIGH);
       digitalWrite(LED_GREEN, HIGH);
     } else if (command == "SOS") {
+      if (fallState == Sleeping) {
+        particleSensor.wakeUp();
+      }
       fallState = Emergency;
       buttonPressStartTime = 0;
       imuBufferIndex = 0;
@@ -520,6 +533,9 @@ void loop() {
       digitalWrite(LED_RED, LOW);
       tone(BUZZER_PIN, 3000);
     } else if (command == "PING") {
+      if (fallState == Sleeping) {
+        particleSensor.wakeUp();
+      }
       fallState = Ping;
       lastSentFallState = Normal;
       buttonPressStartTime = 0;
@@ -529,6 +545,27 @@ void loop() {
       digitalWrite(LED_GREEN, HIGH);
       digitalWrite(LED_BLUE, LOW);
       tone(BUZZER_PIN, 2000);
+    } else if (command == "SLEEP") {
+      fallState = Sleeping;
+      buttonPressStartTime = 0;
+      imuBufferIndex = 0;
+      resetHR();
+      particleSensor.shutDown();
+      noTone(BUZZER_PIN);
+      digitalWrite(LED_RED, HIGH);
+      digitalWrite(LED_GREEN, HIGH);
+      digitalWrite(LED_BLUE, HIGH);
+    } else if (command == "WAKE") {
+      particleSensor.wakeUp();
+      resetHR();
+      fallState = Normal;
+      buttonPressStartTime = 0;
+      imuBufferIndex = 0;
+      ledRedState = true;
+      noTone(BUZZER_PIN);
+      digitalWrite(LED_BLUE, LOW);
+      digitalWrite(LED_RED, HIGH);
+      digitalWrite(LED_GREEN, HIGH);
     }
   }
 

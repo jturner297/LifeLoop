@@ -78,15 +78,14 @@ final class FamilyDeviceManager: ObservableObject {
                 await self.acknowledgeCheckInIfNeeded(for: deviceID)
             }
         }
-        ensureCheckInSubscription()
-        ensureAlertSubscription()
     }
 
     var hasGroup: Bool { !groupCode.isEmpty }
+    private var isSignedIn: Bool { UserDefaults.standard.bool(forKey: "cloud.isSignedIn") }
     private var sharesInformation: Bool { UserDefaults.standard.object(forKey: "profile.shareDeviceInformation") as? Bool ?? true }
     private var sharesLocation: Bool { UserDefaults.standard.object(forKey: "com.lifeloop.family.locationSharingEnabled") as? Bool ?? true }
 
-    func stopSharing() {
+    func pauseCloudSubscriptions() {
         activeCheckInSequence?.cancel()
         activeCheckInSequence = nil
         checkInSubscriptionTask?.cancel()
@@ -95,6 +94,10 @@ final class FamilyDeviceManager: ObservableObject {
         activeAlertSequence = nil
         alertSubscriptionTask?.cancel()
         alertSubscriptionTask = nil
+    }
+
+    func stopSharing() {
+        pauseCloudSubscriptions()
         linkedDeviceIDs = []
         UserDefaults.standard.set([], forKey: linkedKey)
         groupCode = ""
@@ -150,7 +153,7 @@ final class FamilyDeviceManager: ObservableObject {
     }
 
     func uploadLocalDevices(_ devices: [KnownDevice], statuses: [String: DeviceStatus], fallbackLatitude: Double, fallbackLongitude: Double) {
-        guard hasGroup, sharesInformation else { return }
+        guard hasGroup, isSignedIn, sharesInformation else { return }
         for device in devices where linkedDeviceIDs.contains(device.id) {
             let status = statuses[device.id]
             let online = status?.isConnected == true
@@ -216,9 +219,9 @@ final class FamilyDeviceManager: ObservableObject {
     }
 
     func refreshFamilyDevices(force: Bool = true) async {
+        guard hasGroup, isSignedIn, !isSyncing else { return }
         ensureCheckInSubscription()
         ensureAlertSubscription()
-        guard hasGroup, !isSyncing else { return }
         if !force && Date().timeIntervalSince(lastRefresh ?? .distantPast) < 3 { return }
         isSyncing = true
         defer { isSyncing = false; lastRefresh = Date() }
@@ -387,11 +390,12 @@ final class FamilyDeviceManager: ObservableObject {
     }
 
     func ensureCheckInSubscription() {
-        guard hasGroup, checkInSubscriptionTask == nil else { return }
+        guard hasGroup, isSignedIn, checkInSubscriptionTask == nil else { return }
         let code = groupCode
         checkInSubscriptionTask = Task { [weak self] in
+            var backoffSeconds = 2
             while !Task.isCancelled {
-                guard let self, self.hasGroup else { break }
+                guard let self, self.hasGroup, self.isSignedIn else { break }
                 let sequence = self.apiClient.subscribeToCheckIns(code: code)
                 self.activeCheckInSequence = sequence
                 do {
@@ -399,7 +403,9 @@ final class FamilyDeviceManager: ObservableObject {
                         if Task.isCancelled { break }
                         switch event {
                         case .connection(let state):
-                            if state == .disconnected {
+                            if state == .connected {
+                                backoffSeconds = 2
+                            } else if state == .disconnected {
                                 break
                             }
                         case .data(let result):
@@ -410,10 +416,13 @@ final class FamilyDeviceManager: ObservableObject {
                     }
                 } catch {
                     if Task.isCancelled { break }
+                    if error.localizedDescription.localizedCaseInsensitiveContains("unauthorized") {
+                        backoffSeconds = min(backoffSeconds * 2, 30)
+                    }
                 }
                 sequence.cancel()
                 self.activeCheckInSequence = nil
-                try? await Task.sleep(for: .seconds(2))
+                try? await Task.sleep(for: .seconds(backoffSeconds))
             }
             await MainActor.run { [weak self] in
                 self?.activeCheckInSequence?.cancel()
@@ -452,19 +461,24 @@ final class FamilyDeviceManager: ObservableObject {
     }
 
     func ensureAlertSubscription() {
-        guard hasGroup, alertSubscriptionTask == nil else { return }
+        guard hasGroup, isSignedIn, alertSubscriptionTask == nil else { return }
         let code = groupCode
         alertSubscriptionTask = Task { [weak self] in
+            var backoffSeconds = 2
             while !Task.isCancelled {
-                guard let self, self.hasGroup else { break }
+                guard let self, self.hasGroup, self.isSignedIn else { break }
                 let sequence = self.apiClient.subscribeToAlerts(code: code)
                 self.activeAlertSequence = sequence
                 do {
                     for try await event in sequence {
                         if Task.isCancelled { break }
                         switch event {
-                        case .connection:
-                            break
+                        case .connection(let state):
+                            if state == .connected {
+                                backoffSeconds = 2
+                            } else if state == .disconnected {
+                                break
+                            }
                         case .data(let result):
                             if case .success(let alert) = result {
                                 self.handleAlertUpdate(alert)
@@ -473,10 +487,13 @@ final class FamilyDeviceManager: ObservableObject {
                     }
                 } catch {
                     if Task.isCancelled { break }
+                    if error.localizedDescription.localizedCaseInsensitiveContains("unauthorized") {
+                        backoffSeconds = min(backoffSeconds * 2, 30)
+                    }
                 }
                 sequence.cancel()
                 self.activeAlertSequence = nil
-                try? await Task.sleep(for: .seconds(2))
+                try? await Task.sleep(for: .seconds(backoffSeconds))
             }
             await MainActor.run { [weak self] in
                 self?.activeAlertSequence?.cancel()

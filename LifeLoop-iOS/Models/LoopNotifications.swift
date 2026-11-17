@@ -2,6 +2,10 @@ import Foundation
 import Observation
 import UserNotifications
 
+extension Notification.Name {
+    static let lifeLoopCancelEmergencyFromNotification = Notification.Name("com.lifeloop.cancelEmergencyFromNotification")
+}
+
 @MainActor @Observable
 final class LoopNotifications: NSObject, UNUserNotificationCenterDelegate {
     static let shared = LoopNotifications()
@@ -9,11 +13,38 @@ final class LoopNotifications: NSObject, UNUserNotificationCenterDelegate {
     private var seen: [String: String] = UserDefaults.standard.dictionary(forKey: "notifications.alertStates") as? [String: String] ?? [:]
 
     func configure() {
-        UNUserNotificationCenter.current().delegate = self
+        let center = UNUserNotificationCenter.current()
+        center.delegate = self
         let open = UNNotificationAction(identifier: "OPEN_GROUP", title: "View family", options: [.foreground])
-        UNUserNotificationCenter.current().setNotificationCategories([
-            UNNotificationCategory(identifier: "FAMILY_ALERT", actions: [open], intentIdentifiers: [])
+        let cancelEmergency = UNNotificationAction(identifier: "CANCEL_EMERGENCY", title: "I’m OK — Cancel Alert", options: [.destructive, .foreground])
+        center.setNotificationCategories([
+            UNNotificationCategory(identifier: "FAMILY_ALERT", actions: [open], intentIdentifiers: []),
+            UNNotificationCategory(identifier: "LOCAL_EMERGENCY_COUNTDOWN", actions: [cancelEmergency], intentIdentifiers: [])
         ])
+        center.requestAuthorization(options: [.alert, .sound, .badge]) { granted, _ in
+            if granted && UserDefaults.standard.object(forKey: "profile.notifications") == nil {
+                UserDefaults.standard.set(true, forKey: "profile.notifications")
+            }
+        }
+    }
+
+    nonisolated func postLocalEmergencyCountdown(reason: String) {
+        let content = UNMutableNotificationContent()
+        content.title = "EMERGENCY ALERT — Do you need help?"
+        content.body = "\(reason). 30-second countdown started. Tap to open or cancel if you are safe."
+        content.sound = .default
+        content.categoryIdentifier = "LOCAL_EMERGENCY_COUNTDOWN"
+        if #available(iOS 15.0, *) {
+            content.interruptionLevel = .timeSensitive
+        }
+        let request = UNNotificationRequest(identifier: "lifeloop.local.emergency.countdown", content: content, trigger: nil)
+        UNUserNotificationCenter.current().add(request)
+    }
+
+    nonisolated func clearLocalEmergencyCountdown() {
+        let center = UNUserNotificationCenter.current()
+        center.removePendingNotificationRequests(withIdentifiers: ["lifeloop.local.emergency.countdown"])
+        center.removeDeliveredNotifications(withIdentifiers: ["lifeloop.local.emergency.countdown"])
     }
 
     func receive(_ alerts: [CloudAlert]) {
@@ -85,8 +116,10 @@ final class LoopNotifications: NSObject, UNUserNotificationCenterDelegate {
         let code = response.notification.request.content.userInfo["groupCode"] as? String
         let completeOnMain = {
             MainActor.assumeIsolated {
-                if actionIdentifier != UNNotificationDismissActionIdentifier,
-                   let code, !code.isEmpty {
+                if actionIdentifier == "CANCEL_EMERGENCY" {
+                    NotificationCenter.default.post(name: .lifeLoopCancelEmergencyFromNotification, object: nil)
+                } else if actionIdentifier != UNNotificationDismissActionIdentifier,
+                          let code, !code.isEmpty {
                     self.selectedGroupCode = code
                 }
             }

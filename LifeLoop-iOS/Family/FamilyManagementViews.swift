@@ -95,8 +95,15 @@ struct FamilyContactsView: View {
     var body: some View {
         List {
             Section {
-                Text("These numbers receive a call after the emergency grace period. Only save numbers you have permission to contact.")
-                    .font(.footnote).foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 6) {
+                    Label("For Family & Caregivers Only", systemImage: "person.2.wave.2.fill")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(LoopStyle.green)
+                    Text("These phone numbers receive an automated emergency call if a fall or SOS alert is not canceled within the 30-second countdown. Enter the phone numbers of family members or caregivers—do not enter the watch wearer's own phone number.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.vertical, 4)
                 if contacts.isEmpty { Text("No call contacts saved yet.") }
                 ForEach(contacts) { contact in
                     Button { editing = contact } label: {
@@ -135,6 +142,7 @@ struct FamilyContactsView: View {
 
 struct ContactEditor: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(UserProfile.self) private var profile
     let group: LoopGroup
     var contact: FamilyContact?
     @State private var name = ""
@@ -148,11 +156,29 @@ struct ContactEditor: View {
         phone.range(of: #"^\+[1-9]\d{7,14}$"#, options: .regularExpression) != nil && consent
     }
 
+    private var isOwnPhoneWarning: Bool {
+        let digits = { (s: String) in s.filter(\.isNumber) }
+        let enteredDigits = digits(phone)
+        let myDigits = digits(profile.phone)
+        guard enteredDigits.count >= 10, myDigits.count >= 10 else { return false }
+        return enteredDigits.suffix(10) == myDigits.suffix(10)
+    }
+
     var body: some View {
         NavigationStack {
             Form {
-                TextField("Contact name", text: $name)
+                Section {
+                    Label("Add a family member or caregiver's number—not the watch wearer's own phone number. This number is called automatically after the 30-second emergency countdown.", systemImage: "phone.arrow.up.right.fill")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+                TextField("Family member / caregiver name", text: $name)
                 TextField("Phone, e.g. +15551234567", text: $phone).keyboardType(.phonePad)
+                if isOwnPhoneWarning {
+                    Label("This matches the phone number on your profile. If you are the watch wearer, adding your own number means you will receive the emergency call.", systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
                 Toggle("I have permission to add this emergency contact", isOn: $consent)
                 Text("Save sends this name and phone number to this family. Your profile contact draft is never sent automatically.")
                     .font(.footnote).foregroundStyle(.secondary)

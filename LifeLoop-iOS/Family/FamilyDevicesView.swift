@@ -16,7 +16,7 @@ struct GroupsView: View {
                         Button("Create family", systemImage: "plus") { creating = true }
                             .buttonStyle(.borderedProminent)
                             .tint(LoopStyle.green)
-                            .foregroundStyle(LoopStyle.ink)
+                            .foregroundStyle(LoopStyle.darkInk)
                         Button("Join family", systemImage: "person.badge.plus") { joining = true }
                             .buttonStyle(.bordered)
                             .tint(LoopStyle.green)
@@ -25,7 +25,7 @@ struct GroupsView: View {
                     Button("Sign in to your family") { account = true }
                         .buttonStyle(.borderedProminent)
                         .tint(LoopStyle.green)
-                        .foregroundStyle(LoopStyle.ink)
+                        .foregroundStyle(LoopStyle.darkInk)
                 }
                 if profile.groups.isEmpty {
                     ContentUnavailableView("Your family starts here", systemImage: "person.2", description: Text("Create a family or join with an invitation code."))
@@ -448,7 +448,7 @@ struct MemberInfoView: View {
                     }
                     .buttonStyle(.borderedProminent)
                     .tint(LoopStyle.green)
-                    .foregroundStyle(LoopStyle.ink)
+                    .foregroundStyle(LoopStyle.darkInk)
 
                     if let checkIn = manager.activeCheckIns[member.id] {
                         let isSafe = checkIn.status == "SAFE" && state != 5
@@ -493,7 +493,7 @@ struct MemberInfoView: View {
                     MemberMap(name: member.displayName, latitude: member.latitude, longitude: member.longitude, shared: member.isLocationShared)
                     Text("Latest update").font(.title3.bold())
                     VStack(alignment: .leading, spacing: 8) {
-                        Text(state == 4 ? "EMERGENCY" : state == 5 ? "CHECK-IN PING ACTIVE" : state == 2 ? "FALL DETECTED" : state == 0 ? "Normal" : "Device state \(state)").font(.headline)
+                        Text(state == 4 ? "EMERGENCY" : state == 5 ? "CHECK-IN PING ACTIVE" : state == 6 ? "Sleep Mode" : state == 2 ? "FALL DETECTED" : state == 0 ? "Normal" : "Device state \(state)").font(.headline)
                         if let updated = member.lastUpdated {
                             Text(updated, format: .dateTime.month().day().year().hour().minute()).foregroundStyle(.secondary)
                         } else { Text("No update received").foregroundStyle(.secondary) }
