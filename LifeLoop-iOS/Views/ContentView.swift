@@ -3,6 +3,7 @@ import SwiftUI
 struct ContentView: View {
     @Environment(UserProfile.self) private var profile
     @EnvironmentObject private var bleMonitor: BLEMonitor
+    @AppStorage("app.appearance") private var appearanceRaw = AppAppearance.light.rawValue
     @StateObject private var gps = LocationManager()
     @StateObject private var timer = EMSTimerManager.shared
     @State private var notifications = LoopNotifications.shared
@@ -50,7 +51,7 @@ struct ContentView: View {
         }
         .tint(LoopStyle.green)
         .sheet(isPresented: $addDevice) {
-            AddDeviceSheet(bleMonitor: bleMonitor, background: LoopStyle.background, surface: .white, primaryText: LoopStyle.ink, secondaryText: .secondary, teal: LoopStyle.green)
+            AddDeviceSheet(bleMonitor: bleMonitor, background: LoopStyle.background, surface: LoopStyle.card, primaryText: LoopStyle.ink, secondaryText: .secondary, teal: LoopStyle.green)
         }
         .sheet(isPresented: $showQuickStart) {
             QuickStartGuideSheet(
@@ -85,7 +86,7 @@ struct ContentView: View {
                 device: device,
                 bleMonitor: bleMonitor,
                 background: LoopStyle.background,
-                surface: .white,
+                surface: LoopStyle.card,
                 primaryText: LoopStyle.ink,
                 secondaryText: .secondary,
                 teal: LoopStyle.green,
@@ -118,6 +119,11 @@ struct ContentView: View {
             // Any connected saved device can cancel a manual app SOS.
             guard timer.triggerDeviceID == nil || timer.triggerDeviceID == request.deviceID else { return }
             closeEmergency()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .lifeLoopCancelEmergencyFromNotification)) { _ in
+            if timer.isActive || timer.isAlertTriggered {
+                closeEmergency()
+            }
         }
         .onChange(of: notifications.selectedGroupCode) { _, newValue in
             guard newValue != nil else { return }
@@ -153,6 +159,12 @@ struct ContentView: View {
             Text(cancellationMessage.isEmpty ? "The cloud service could not confirm cancellation. Saved contacts may still be notified." : cancellationMessage + "\n\nSaved contacts may still be notified if cancellation cannot be confirmed.")
         }
         .task {
+            timer.onImmediateTrigger = { _ in
+                sendEmergency()
+            }
+            if timer.isCountingDown && emergencyRecipients.isEmpty {
+                sendEmergency()
+            }
             while !Task.isCancelled {
                 await profile.refreshFamilies(force: false)
                 routePendingNotification()
@@ -165,6 +177,7 @@ struct ContentView: View {
                 if !emergencyRecipients.isEmpty,
                    emergencyRecipients.allSatisfy({ $0.activeAlert?.status == "CANCELED" }),
                    timer.isActive || timer.isAlertTriggered {
+                    emergencyTask = nil
                     bleMonitor.sendCancelCommand()
                     timer.cancelCountdown()
                 }
@@ -264,7 +277,7 @@ struct ContentView: View {
                 localDeviceCards
                 Button { addDevice = true } label: {
                     Label("Connect a device", systemImage: "plus").frame(maxWidth: .infinity)
-                }.buttonStyle(.borderedProminent).tint(LoopStyle.green).foregroundStyle(LoopStyle.ink).controlSize(.large)
+                }.buttonStyle(.borderedProminent).tint(LoopStyle.green).foregroundStyle(LoopStyle.darkInk).controlSize(.large)
             }.padding(24).frame(maxWidth: 720)
         }.loopPage().navigationTitle("Devices")
     }
@@ -371,7 +384,7 @@ struct ContentView: View {
                     .frame(maxWidth: .infinity).padding(.vertical, 8)
             }.buttonStyle(.borderedProminent)
                 .tint(timer.isAlertTriggered ? .red : LoopStyle.green)
-                .foregroundStyle(timer.isAlertTriggered ? .white : LoopStyle.ink)
+                .foregroundStyle(timer.isAlertTriggered ? .white : LoopStyle.darkInk)
                 .disabled(isClosingEmergency)
             if isClosingEmergency { ProgressView("Sending cancellation…") }
             if timer.isAlertTriggered {
@@ -387,6 +400,7 @@ struct ContentView: View {
     }
 
     private func sendEmergency() {
+        guard emergencyTask == nil else { return }
         let sessionID = UUID()
         emergencySessionID = sessionID
         let recipients = Array(profile.managers.values)
@@ -429,6 +443,7 @@ struct ContentView: View {
     private func closeEmergency() {
         emergencySessionID = UUID()
         let delivery = emergencyTask
+        emergencyTask = nil
         let recipients = emergencyRecipients
         let deviceID = emergencyDeviceID
         let ownerName = profile.name
@@ -487,6 +502,14 @@ struct ContentView: View {
                             .font(.title2.bold())
                     }
                     Spacer()
+                    Button {
+                        appearanceRaw = (appearanceRaw == AppAppearance.dark.rawValue) ? AppAppearance.light.rawValue : AppAppearance.dark.rawValue
+                    } label: {
+                        Image(systemName: appearanceRaw == AppAppearance.dark.rawValue ? "sun.max.fill" : "moon.fill")
+                            .font(.title2)
+                            .foregroundStyle(LoopStyle.green)
+                    }
+                    .accessibilityLabel(appearanceRaw == AppAppearance.dark.rawValue ? "Switch to Light Mode" : "Switch to Dark Mode")
                     Button { showQuickStart = true } label: {
                         Image(systemName: "questionmark.circle.fill")
                             .font(.title2)
@@ -864,7 +887,6 @@ struct DeviceProfileSheet: View {
                 }
             }
         }
-        .preferredColorScheme(.light)
     }
 
     private var currentDevice: KnownDevice? {
@@ -1044,7 +1066,6 @@ struct AddDeviceSheet: View {
                 }
             }
         }
-        .preferredColorScheme(.light)
         .onDisappear { bleMonitor.stopScanning() }
         .onAppear {
             if !bleMonitor.isScanning {
@@ -1053,4 +1074,3 @@ struct AddDeviceSheet: View {
         }
     }
 }
-

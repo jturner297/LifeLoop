@@ -28,7 +28,7 @@ struct ProfileView: View {
                     Button { showQuickStart = true } label: { profileRow("Quick Start Guide", icon: "sparkles") }
                     Divider()
                     NavigationLink { SettingsView() } label: { profileRow("Settings", icon: "slider.horizontal.3") }
-                }.padding(.horizontal, 18).background(.white, in: RoundedRectangle(cornerRadius: 24))
+                }.padding(.horizontal, 18).background(LoopStyle.card, in: RoundedRectangle(cornerRadius: 24))
             }.padding(24).frame(maxWidth: 650)
         }.loopPage().navigationTitle("Profile").navigationBarTitleDisplayMode(.inline)
             .sheet(isPresented: $showQuickStart) {
@@ -49,6 +49,7 @@ struct ProfileView: View {
 struct SettingsView: View {
     @Environment(UserProfile.self) private var profile
     @EnvironmentObject private var bleMonitor: BLEMonitor
+    @AppStorage("app.appearance") private var appearanceRaw = AppAppearance.light.rawValue
     @AppStorage("com.lifeloop.family.locationSharingEnabled") private var shareLocation = true
     @AppStorage("profile.shareDeviceInformation") private var shareDeviceInformation = true
     @State private var name = ""
@@ -60,6 +61,14 @@ struct SettingsView: View {
         Form {
             Section("Account") {
                 Button(profile.isSignedIn ? "Manage account" : "Sign in or create an account") { showAccountSetup = true }
+            }
+            Section("Appearance") {
+                Picker("Theme", selection: $appearanceRaw) {
+                    ForEach(AppAppearance.allCases) { option in
+                        Text(option.title).tag(option.rawValue)
+                    }
+                }
+                .pickerStyle(.segmented)
             }
             Section("Personal information") {
                 TextField("Name", text: $name).textContentType(.name)

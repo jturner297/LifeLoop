@@ -39,7 +39,7 @@ LifeLoop is an iOS application built with SwiftUI, integrating Bluetooth Low Ene
 #### Groups & Family Management (`GroupsView`, `GroupDetailView`, `FamilyManagementViews`)
 * **Group Management:**
   * **Create & Join:** Users can create new family groups or join existing ones using an alphanumeric invitation code.
-  * **Group Details:** Displays invitation code sharing options, local group nickname customization, list of family members, emergency call contacts, and device sharing toggles.
+  * **Group Details:** Displays invitation code sharing options, local group nickname customization, list of family members, emergency call contacts, and shared device configurations.
 * **Members & Roles (`FamilyMembersView`):**
   * Displays group members and assigned roles (`CREATOR`, `ADMIN`, `MEMBER`).
   * Admin and Creator roles can modify member roles, remove members, or block/unblock users.
@@ -137,7 +137,7 @@ LifeLoop is an iOS application built with SwiftUI, integrating Bluetooth Low Ene
 * **Telemetry Upload & Link Optimization:**
   * Periodically syncs connected device telemetry (BPM, state, GPS coordinates, location sharing preferences, online status) with AWS AppSync for linked family devices.
   * Maintains an in-memory `linkedDeviceKeys` set cache (`\(code):\(deviceID):\(displayName)`) to execute `linkDevice` GraphQL mutations only once per device connection, eliminating redundant AWS write operations during continuous telemetry streams.
-* **Reverse Geocoding:** Converts latitude and longitude coordinates into structured street addresses using `CLGeocoder`, caching results per device.
+* **Reverse Geocoding:** Converts latitude and longitude coordinates into structured street address using `CLGeocoder`, caching results per device.
 * **Real-Time Subscription Management:**
   * **Check-In Subscriptions (`ensureCheckInSubscription`):** Listens to GraphQL WebSocket updates (`onCheckInChange`) for prompt acknowledgment.
   * **Alert Subscriptions (`ensureAlertSubscription`):** Subscribes to real-time GraphQL WebSocket alert changes (`onAlertChange`) via `apiClient.subscribeToAlerts(code:)`. Immediately processes incoming alerts, updates active group alert states, and passes alert payloads directly to `LoopNotifications.shared.receive([alert])` without polling delays.
