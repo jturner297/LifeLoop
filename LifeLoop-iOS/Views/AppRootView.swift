@@ -3,7 +3,12 @@ import SwiftUI
 struct AppRootView: View {
     @AppStorage("profile.onboarded") private var onboarded = false
     @AppStorage("account.setupComplete") private var accountSetupComplete = false
+    @AppStorage("app.appearance") private var appearanceRaw = AppAppearance.light.rawValue
     @State private var profile = UserProfile()
+
+    private var appearance: AppAppearance {
+        AppAppearance(rawValue: appearanceRaw) ?? .light
+    }
 
     var body: some View {
         Group {
@@ -17,7 +22,7 @@ struct AppRootView: View {
         }
         .environment(profile)
         .tint(LoopStyle.green)
-        .preferredColorScheme(.light)
+        .preferredColorScheme(appearance.colorScheme)
     }
 }
 
@@ -148,7 +153,7 @@ struct QuickStartGuideSheet: View {
                                 }
                                 .buttonStyle(.borderedProminent)
                                 .tint(LoopStyle.green)
-                                .foregroundStyle(LoopStyle.ink)
+                                .foregroundStyle(LoopStyle.darkInk)
                                 .controlSize(.large)
                             }
                             if let onOpenGroups {

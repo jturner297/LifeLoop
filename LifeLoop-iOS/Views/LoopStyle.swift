@@ -1,17 +1,64 @@
 import SwiftUI
 import MapKit
+import UIKit
+
+enum AppAppearance: String, CaseIterable, Identifiable {
+    case light = "light"
+    case dark = "dark"
+    case system = "system"
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .light: return "Light"
+        case .dark: return "Dark"
+        case .system: return "System"
+        }
+    }
+
+    var colorScheme: ColorScheme? {
+        switch self {
+        case .light: return .light
+        case .dark: return .dark
+        case .system: return nil
+        }
+    }
+}
 
 enum LoopStyle {
     static let green = Color(red: 0.22, green: 1.0, blue: 0.08)
-    static let mint = Color(red: 0.86, green: 0.98, blue: 0.84)
-    static let background = Color(red: 0.95, green: 0.97, blue: 0.96)
-    static let ink = Color(red: 0.10, green: 0.16, blue: 0.14)
+    static let darkInk = Color(red: 0.10, green: 0.16, blue: 0.14)
+
+    static let mint = Color(UIColor { traits in
+        traits.userInterfaceStyle == .dark
+            ? UIColor(red: 0.14, green: 0.26, blue: 0.17, alpha: 1.0)
+            : UIColor(red: 0.86, green: 0.98, blue: 0.84, alpha: 1.0)
+    })
+
+    static let background = Color(UIColor { traits in
+        traits.userInterfaceStyle == .dark
+            ? UIColor(red: 0.07, green: 0.10, blue: 0.09, alpha: 1.0)
+            : UIColor(red: 0.95, green: 0.97, blue: 0.96, alpha: 1.0)
+    })
+
+    static let card = Color(UIColor { traits in
+        traits.userInterfaceStyle == .dark
+            ? UIColor(red: 0.12, green: 0.17, blue: 0.15, alpha: 1.0)
+            : UIColor.white
+    })
+
+    static let ink = Color(UIColor { traits in
+        traits.userInterfaceStyle == .dark
+            ? UIColor(red: 0.93, green: 0.97, blue: 0.95, alpha: 1.0)
+            : UIColor(red: 0.10, green: 0.16, blue: 0.14, alpha: 1.0)
+    })
 }
 
 extension View {
     func loopCard() -> some View {
         padding(18).frame(maxWidth: .infinity, alignment: .leading)
-            .background(.white, in: RoundedRectangle(cornerRadius: 22))
+            .background(LoopStyle.card, in: RoundedRectangle(cornerRadius: 22))
     }
     func loopPage() -> some View {
         scrollContentBackground(.hidden).background(LoopStyle.background)
@@ -56,7 +103,7 @@ struct ProfileAvatar: View {
                     .font(.title3.bold())
             }
         }
-        .foregroundStyle(LoopStyle.ink)
+        .foregroundStyle(LoopStyle.darkInk)
         .frame(width: size, height: size)
         .background(LoopStyle.green, in: Circle())
         .accessibilityHidden(true)

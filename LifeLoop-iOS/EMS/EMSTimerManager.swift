@@ -7,6 +7,7 @@
 
 import Foundation
 import Combine
+import UIKit
 
 class EMSTimerManager: ObservableObject {
     
@@ -25,10 +26,24 @@ class EMSTimerManager: ObservableObject {
     // Actual iOS timer object
     private var timer: Timer?
     private var callDeadline: Date?
+    private var backgroundTaskID: UIBackgroundTaskIdentifier = .invalid
 
     func synchronizeCallDeadline(_ date: Date) {
         callDeadline = date
         timeRemaining = max(0, Int(ceil(date.timeIntervalSinceNow)))
+    }
+    
+    private func beginBackgroundCountdownTask() {
+        endBackgroundCountdownTask()
+        backgroundTaskID = UIApplication.shared.beginBackgroundTask(withName: "LifeLoopEmergencyCountdown") { [weak self] in
+            self?.endBackgroundCountdownTask()
+        }
+    }
+    
+    private func endBackgroundCountdownTask() {
+        guard backgroundTaskID != .invalid else { return }
+        UIApplication.shared.endBackgroundTask(backgroundTaskID)
+        backgroundTaskID = .invalid
     }
     
     // Timer countdown function
@@ -37,11 +52,14 @@ class EMSTimerManager: ObservableObject {
         
         guard !isCountingDown, !isActive, !isAlertTriggered else { return }
         
+        beginBackgroundCountdownTask()
+        
         //Store the message for the UI
         self.triggerReason = reason
         triggerDeviceID = deviceID
         
         onImmediateTrigger?(reason)
+        LoopNotifications.shared.postLocalEmergencyCountdown(reason: reason)
         
         isCountingDown = true
         timeRemaining = 30
@@ -55,9 +73,8 @@ class EMSTimerManager: ObservableObject {
          Allows for repetition of subtracting exactly one second for the countdown within the infinite loop that fires once every second
          [weak self] and guard let prevents memory leak
          */
-        
-        timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
-            guard let self = self else {return}
+        let newTimer = Timer(timeInterval: 1.0, repeats: true) { [weak self] _ in
+            guard let self = self else { return }
             
             // Whenever there is more than 0 time remaning continue to subtract 1 second until you reach 0
             self.timeRemaining = max(0, Int(ceil((self.callDeadline ?? Date()).timeIntervalSinceNow)))
@@ -69,9 +86,11 @@ class EMSTimerManager: ObservableObject {
                 self.isCountingDown = false
                 
                 EmergencyAlarmManager.shared.stopAlarm()
+                self.endBackgroundCountdownTask()
             }
-            
         }
+        RunLoop.main.add(newTimer, forMode: .common)
+        timer = newTimer
     }
     
     /*
@@ -86,5 +105,7 @@ class EMSTimerManager: ObservableObject {
         isAlertTriggered = false
         isCountingDown = false
         EmergencyAlarmManager.shared.stopAlarm()
+        LoopNotifications.shared.clearLocalEmergencyCountdown()
+        endBackgroundCountdownTask()
     }
 }
