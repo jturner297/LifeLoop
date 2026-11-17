@@ -543,7 +543,7 @@ struct ContentView: View {
                     }
                     .buttonStyle(.borderedProminent)
                     .tint(timer.isAlertTriggered ? .red : LoopStyle.green)
-                    .foregroundStyle(timer.isAlertTriggered ? .white : LoopStyle.darkInk)
+                    .foregroundStyle(timer.isAlertTriggered ? .white : LoopStyle.ink)
                     .disabled(isClosingEmergency)
 
                     if isClosingEmergency {
@@ -585,7 +585,7 @@ struct ContentView: View {
                         }
                         .buttonStyle(.borderedProminent)
                         .tint(LoopStyle.green)
-                        .foregroundStyle(LoopStyle.darkInk)
+                        .foregroundStyle(LoopStyle.ink)
                     }
                     .padding(8)
                     .loopCard()
@@ -715,7 +715,7 @@ struct ContentView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(isSleeping ? LoopStyle.green : .indigo)
-                .foregroundStyle(isSleeping ? LoopStyle.darkInk : .white)
+                .foregroundStyle(isSleeping ? LoopStyle.ink : .white)
             } else {
                 Button {
                     bleMonitor.connect(toKnown: device)
@@ -1074,4 +1074,3 @@ struct AddDeviceSheet: View {
         }
     }
 }
-

@@ -47,8 +47,7 @@ struct WelcomeView: View {
                     QuickStartCardsSection()
                     VStack(alignment: .leading, spacing: 16) {
                         Text("Contact information · Optional").font(.headline)
-                        TextField("Phone number", text: $profile.phone)
-                            .textContentType(.telephoneNumber).keyboardType(.phonePad)
+                        PhoneNumberField(phone: $profile.phone)
                         TextField("Email address", text: $profile.email)
                             .textContentType(.emailAddress).keyboardType(.emailAddress)
                             .textInputAutocapitalization(.never).autocorrectionDisabled()
@@ -93,7 +92,7 @@ struct QuickStartCardsSection: View {
                 bullets: [
                     "Open the Groups tab to Create a Family (generates a 6-character code) or Join a Family using a code.",
                     "Inside your family group, open Shared devices to link the wearer's watch so family members can see live status, location, and send Check-In Pings.",
-                    "Open Call contacts to add family/caregiver phone numbers (not the wearer's own number) to receive automated calls if an emergency isn't canceled."
+                    "Open Call contacts to add family or caregiver numbers, including people without the app. Save your own number in Settings to link it to your account online. Emergency call routing is configured separately."
                 ]
             )
         }
