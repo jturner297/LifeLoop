@@ -1,5 +1,6 @@
 import SwiftUI
 import UserNotifications
+import Amplify
 
 struct ProfileView: View {
     @Environment(UserProfile.self) private var profile
@@ -91,11 +92,12 @@ struct SettingsView: View {
                 }
             } header: { Text("Privacy & sharing") }
             Section("Contact information") {
-                TextField("Phone number", text: $profile.phone).keyboardType(.phonePad).textContentType(.telephoneNumber)
+                NavigationLink("Account phone number") { AccountPhoneView().id(profile.currentUserID) }
+                    .disabled(!profile.isSignedIn)
                 TextField("Email address", text: $profile.email).keyboardType(.emailAddress)
                     .textContentType(.emailAddress).textInputAutocapitalization(.never).autocorrectionDisabled()
                 Toggle("Agree to share contact information with my groups", isOn: $profile.contactConsent)
-                Text("This profile draft stays on this phone. To save a number for emergency calls, open a family’s Emergency call contacts page and explicitly add it.")
+                Text("Save your own number in Account phone number to link it to your account online. Family emergency call contacts are managed separately.")
                     .font(.footnote).foregroundStyle(.secondary)
                 ForEach(profile.groups) { group in
                     LabeledContent(group.name, value: profile.contactConsent ? "Local draft" : "Consent not given")
@@ -109,6 +111,132 @@ struct SettingsView: View {
             .sheet(isPresented: $showAccountSetup) {
                 AccountSetupView { showAccountSetup = false }
             }
+    }
+}
+
+
+/// The account ID comes from the existing sign-in session, never from typed input.
+private struct AccountPhoneView: View {
+    @State private var phone = ""
+    @State private var record: AccountPhoneRecord?
+    @State private var accountID: String?
+    @State private var cloudPhone: String?
+    @State private var busy = true
+    @State private var message: String?
+    @State private var errorMessage: String?
+    private let store = AccountPhoneStore()
+
+    private var normalizedPhone: String { PhoneNumberText.compact(phone) }
+
+    var body: some View {
+        Form {
+            Section("Your account number") {
+                if let record {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Label(cloudPhone == record.phoneNumber ? "Saved to your account" : "Saved on this device only", systemImage: "person.crop.circle.badge.checkmark")
+                            .font(.subheadline).foregroundStyle(LoopStyle.green)
+                        Text(PhoneNumberText.display(record.phoneNumber))
+                            .font(.title2.weight(.semibold).monospacedDigit())
+                            .textSelection(.enabled)
+                    }
+                } else {
+                    Text("No number linked to this account on this device.")
+                }
+                PhoneNumberField(phone: $phone)
+                Button("Save number") { Task { await saveNumber() } }
+                    .disabled(accountID == nil || !PhoneNumberText.isValid(normalizedPhone) || normalizedPhone == cloudPhone)
+                Text("Use your own number. Save links it to your signed-in account online and keeps a copy on this device. No verification text is sent.")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
+            Section {
+                Text("Saving your account number does not add you to a family’s call contacts. Emergency call filtering must also be configured in the calling service.")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
+            if let message { Text(message).foregroundStyle(.secondary) }
+            if let errorMessage {
+                Text(errorMessage).foregroundStyle(.red)
+                Button("Reload account number") { Task { await loadAccount() } }
+            }
+            if busy { ProgressView() }
+        }
+        .disabled(busy)
+        .navigationTitle("Account phone number")
+        .task { await loadAccount() }
+    }
+
+    private func loadAccount() async {
+        busy = true
+        errorMessage = nil
+        cloudPhone = nil
+        message = nil
+        record = nil
+        phone = ""
+        accountID = nil
+        defer { busy = false }
+        do {
+            let user = try await Amplify.Auth.getCurrentUser()
+            let saved = try store.load(userID: user.userId)
+            accountID = user.userId
+            record = saved
+            phone = saved?.phoneNumber ?? ""
+            let remote = try await FamilyAPIClient.shared.myPhoneNumber()
+            try await checkAccount(user.userId)
+            if let remote {
+                guard remote.userID == user.userId else { throw phoneAccountError() }
+                record = remote
+                phone = remote.phoneNumber
+                cloudPhone = remote.phoneNumber
+                _ = try store.save(phoneNumber: remote.phoneNumber, userID: user.userId)
+            }
+        } catch { errorMessage = error.localizedDescription }
+    }
+
+    private func saveNumber() async {
+        guard PhoneNumberText.isValid(normalizedPhone) else { return }
+        busy = true
+        errorMessage = nil
+        message = nil
+        let number = normalizedPhone
+        defer { busy = false }
+        do {
+            let user = try await Amplify.Auth.getCurrentUser()
+            guard user.userId == accountID else {
+                // Never write an old screen's draft into a newly signed-in account.
+                record = nil
+                phone = ""
+                accountID = nil
+                errorMessage = "Your account changed. Reload this page before saving."
+                return
+            }
+            record = try store.save(phoneNumber: number, userID: user.userId)
+            let remote = try await FamilyAPIClient.shared.saveMyPhoneNumber(number)
+            try await checkAccount(user.userId)
+            guard remote.userID == user.userId, remote.phoneNumber == number else {
+                throw phoneAccountError()
+            }
+            record = remote
+            cloudPhone = remote.phoneNumber
+            message = "Number saved to your account online."
+        } catch {
+            errorMessage = "Online save could not be confirmed. Your local number is kept; tap Save number to retry. " + error.localizedDescription
+        }
+    }
+
+    private func checkAccount(_ expectedID: String) async throws {
+        let current = try await Amplify.Auth.getCurrentUser()
+        guard current.userId == expectedID else {
+            record = nil
+            phone = ""
+            cloudPhone = nil
+            accountID = nil
+            throw phoneAccountError()
+        }
+    }
+
+    private func phoneAccountError() -> NSError {
+        NSError(domain: "LifeLoop", code: 1, userInfo: [
+            NSLocalizedDescriptionKey: "The account or returned phone record changed. Reload this page."
+        ])
     }
 }
 

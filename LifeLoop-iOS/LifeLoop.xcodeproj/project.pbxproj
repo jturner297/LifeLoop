@@ -30,6 +30,8 @@
 		FB56C6123062D9DA00239815 /* AWSCognitoAuthPlugin in Frameworks */ = {isa = PBXBuildFile; productRef = FB56C6113062D9DA00239815 /* AWSCognitoAuthPlugin */; };
 		FB56C6143062D9DA00239815 /* Amplify in Frameworks */ = {isa = PBXBuildFile; productRef = FB56C6133062D9DA00239815 /* Amplify */; };
 		FB56C61A3062E3DD00239815 /* amplifyconfiguration.json in Resources */ = {isa = PBXBuildFile; fileRef = FB56C6193062E3DD00239815 /* amplifyconfiguration.json */; };
+		FB5BB01330AC1A6A005C3C6B /* PhoneNumberField.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB5BB01230AC1A6A005C3C6B /* PhoneNumberField.swift */; };
+		FB5D5BD030ACB59F008D5DBD /* AccountPhoneRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB5D5BCF30ACB59F008D5DBD /* AccountPhoneRecord.swift */; };
 		FB7413003089AD3D009D9EA5 /* SOSAlertStatusView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB7412FF3089AD3D009D9EA5 /* SOSAlertStatusView.swift */; };
 		FB7413023089AD66009D9EA5 /* AccountSetupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB7413013089AD66009D9EA5 /* AccountSetupView.swift */; };
 		FB908D8D308BF0DB00C8F30C /* LoopNotifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB908D8C308BF0DB00C8F30C /* LoopNotifications.swift */; };
@@ -66,6 +68,8 @@
 		FB56C60C3061FDE700239815 /* Reexports.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Reexports.swift; sourceTree = "<group>"; };
 		FB56C60D3061FDE800239815 /* CoreLocationReexport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoreLocationReexport.swift; sourceTree = "<group>"; };
 		FB56C6193062E3DD00239815 /* amplifyconfiguration.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = amplifyconfiguration.json; sourceTree = "<group>"; };
+		FB5BB01230AC1A6A005C3C6B /* PhoneNumberField.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneNumberField.swift; sourceTree = "<group>"; };
+		FB5D5BCF30ACB59F008D5DBD /* AccountPhoneRecord.swift */ = {isa = PBXFileReference; path = AccountPhoneRecord.swift; sourceTree = "<group>"; };
 		FB7412FF3089AD3D009D9EA5 /* SOSAlertStatusView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SOSAlertStatusView.swift; sourceTree = "<group>"; };
 		FB7413013089AD66009D9EA5 /* AccountSetupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountSetupView.swift; sourceTree = "<group>"; };
 		FB908D8C308BF0DB00C8F30C /* LoopNotifications.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoopNotifications.swift; sourceTree = "<group>"; };
@@ -117,6 +121,7 @@
 				FB7412FF3089AD3D009D9EA5 /* SOSAlertStatusView.swift */,
 				FB7413013089AD66009D9EA5 /* AccountSetupView.swift */,
 				FB908D90308BF18900C8F30C /* LifeLoopBrand.swift */,
+				FB5BB01230AC1A6A005C3C6B /* PhoneNumberField.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -213,6 +218,7 @@
 				B10000000000000000000003 /* LifeLoopState.swift */,
 				FBE8927330896C88008C5B7A /* UserProfile.swift */,
 				FB908D8C308BF0DB00C8F30C /* LoopNotifications.swift */,
+				FB5D5BCF30ACB59F008D5DBD /* AccountPhoneRecord.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -322,6 +328,8 @@
 				58A9C60D305A2806007C41DC /* EMSCountdown.swift in Sources */,
 				FB908D8D308BF0DB00C8F30C /* LoopNotifications.swift in Sources */,
 				580C66FA3048F9CF00C85FC7 /* LocationManager.swift in Sources */,
+				FB5BB01330AC1A6A005C3C6B /* PhoneNumberField.swift in Sources */,
+				FB5D5BD030ACB59F008D5DBD /* AccountPhoneRecord.swift in Sources */,
 				A10000000000000000000003 /* LifeLoopState.swift in Sources */,
 				586277EC3065749B00E8E924 /* EmergencyAlarmManager.swift in Sources */,
 				586277E83062D20D00E8E924 /* SettingsView.swift in Sources */,
@@ -452,7 +460,7 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = GTR6K4S275;
+				DEVELOPMENT_TEAM = WY6STY3DZL;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
@@ -476,7 +484,7 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = GTR6K4S275;
+				DEVELOPMENT_TEAM = WY6STY3DZL;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
