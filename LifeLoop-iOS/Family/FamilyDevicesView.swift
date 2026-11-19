@@ -102,6 +102,7 @@ struct GroupEditor: View {
 struct GroupDetailView: View {
     @Environment(UserProfile.self) private var profile
     @Environment(\.dismiss) private var dismiss
+    @AppStorage(DevMode.storageKey) private var isDevModeEnabled = false
     let group: LoopGroup
     @ObservedObject var manager: FamilyDeviceManager
     @State private var leave = false
@@ -140,7 +141,9 @@ struct GroupDetailView: View {
                 }
                 FamilyAlertsView(manager: manager)
                 MemberListSection(manager: manager, title: "Shared devices", search: "")
-                Text(manager.syncStatus).font(.footnote).foregroundStyle(.secondary)
+                if isDevModeEnabled {
+                    Text(manager.syncStatus).font(.footnote).foregroundStyle(.secondary)
+                }
                 if profile.role(in: group.id) != .creator {
                     Button("Leave family", role: .destructive) { leave = true }
                 }
@@ -377,6 +380,7 @@ struct GroupMapSection: View {
 struct MemberInfoView: View {
     @EnvironmentObject private var bleMonitor: BLEMonitor
     @Environment(\.dismiss) private var dismiss
+    @AppStorage(DevMode.storageKey) private var isDevModeEnabled = false
     let memberID: String
     @ObservedObject var manager: FamilyDeviceManager
     @State private var cancel = false
@@ -499,7 +503,9 @@ struct MemberInfoView: View {
                         } else { Text("No update received").foregroundStyle(.secondary) }
                     }.loopCard()
                     FamilyAlertsView(manager: manager, deviceID: member.id)
-                    Text(manager.syncStatus).font(.footnote).foregroundStyle(.secondary)
+                    if isDevModeEnabled {
+                        Text(manager.syncStatus).font(.footnote).foregroundStyle(.secondary)
+                    }
 
                     Button(role: .destructive) {
                         removeMemberDevice = true

@@ -55,7 +55,8 @@ final class LoopNotifications: NSObject, UNUserNotificationCenterDelegate {
                   UserDefaults.standard.bool(forKey: "profile.notifications"),
                   let created = alert.createdDate,
                   Date().timeIntervalSince(created) < 86_400 else { continue }
-            if alert.status != "PENDING" && !UserDefaults.standard.bool(forKey: "notifications.statusUpdates") { continue }
+            let statusUpdatesEnabled = UserDefaults.standard.object(forKey: "notifications.statusUpdates") as? Bool ?? true
+            if alert.status != "PENDING" && !statusUpdatesEnabled { continue }
             // Do not announce old resolved alerts when a group is first loaded.
             if previous == nil && alert.status != "PENDING" { continue }
             let content = UNMutableNotificationContent()

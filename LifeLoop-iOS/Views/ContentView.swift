@@ -3,7 +3,9 @@ import SwiftUI
 struct ContentView: View {
     @Environment(UserProfile.self) private var profile
     @EnvironmentObject private var bleMonitor: BLEMonitor
+    @Environment(\.openURL) private var openURL
     @AppStorage("app.appearance") private var appearanceRaw = AppAppearance.light.rawValue
+    @ScaledMetric(relativeTo: .title) private var wearerMetricFontSize: CGFloat = 28
     @StateObject private var gps = LocationManager()
     @StateObject private var timer = EMSTimerManager.shared
     @State private var notifications = LoopNotifications.shared
@@ -17,6 +19,9 @@ struct ContentView: View {
     @State private var showQuickStart = false
     @State private var showWearerFamilySheet = false
     @State private var showWearerAccountSheet = false
+    @State private var showWearerSettingsSheet = false
+    @State private var openAddDeviceAfterWearerSettings = false
+    @State private var devicePendingSleep: KnownDevice?
     @State private var selectedDevice: KnownDevice?
     @State private var emergencyDeliveryMessage = "Sending an alert to your connected family…"
     @State private var emergencyDeliveryTitle = "Sending alert"
@@ -80,6 +85,38 @@ struct ContentView: View {
         .sheet(isPresented: $showWearerAccountSheet) {
             AccountSetupView { showWearerAccountSheet = false }
                 .environment(profile)
+        }
+        .sheet(isPresented: $showWearerSettingsSheet, onDismiss: {
+            if openAddDeviceAfterWearerSettings {
+                openAddDeviceAfterWearerSettings = false
+                addDevice = true
+            }
+        }) {
+            WearerSettingsSheet {
+                openAddDeviceAfterWearerSettings = true
+            }
+            .environment(profile)
+            .environmentObject(bleMonitor)
+        }
+        .confirmationDialog(
+            "Turn Watch Off (Sleep Mode)?",
+            isPresented: Binding(
+                get: { devicePendingSleep != nil },
+                set: { if !$0 { devicePendingSleep = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Turn Watch Off", role: .destructive) {
+                if let device = devicePendingSleep {
+                    bleMonitor.sendSleepCommand(deviceID: device.id)
+                }
+                devicePendingSleep = nil
+            }
+            Button("Keep Watch On", role: .cancel) {
+                devicePendingSleep = nil
+            }
+        } message: {
+            Text("Fall detection and heart rate monitoring will pause until you turn the watch back on.")
         }
         .sheet(item: $selectedDevice) { device in
             DeviceProfileSheet(
@@ -207,7 +244,7 @@ struct ContentView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
                 HStack {
-                    Image("LifeLoopLogo").resizable().scaledToFit().frame(width: 52, height: 52).accessibilityLabel("LifeLoop")
+                    Image("LifeLoopLogo").resizable().scaledToFit().frame(width: 52, height: 52).accessibilityLabel("LifeLoop").devModeLogoTrigger()
                     VStack(alignment: .leading, spacing: 5) {
                         Text(greeting).font(.subheadline).foregroundStyle(.secondary)
                         Text(profile.name).font(.title2.bold())
@@ -485,6 +522,25 @@ struct ContentView: View {
         }
     }
 
+    private func acknowledgeCheckInFromWearer(deviceID: String) {
+        bleMonitor.acknowledgeCheckInFromApp(deviceID: deviceID)
+        Task {
+            for manager in profile.managers.values {
+                if let matchingKey = manager.activeCheckIns.keys.first(where: { $0.caseInsensitiveCompare(deviceID) == .orderedSame }) {
+                    await manager.acknowledgeCheckInIfNeeded(for: matchingKey)
+                }
+            }
+            for manager in profile.managers.values {
+                manager.uploadLocalDevices(
+                    bleMonitor.knownDevices,
+                    statuses: bleMonitor.deviceStatuses,
+                    fallbackLatitude: gps.latitude,
+                    fallbackLongitude: gps.longitude
+                )
+            }
+        }
+    }
+
     private var wearerDashboard: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
@@ -494,36 +550,102 @@ struct ContentView: View {
                         .scaledToFit()
                         .frame(width: 52, height: 52)
                         .accessibilityLabel("LifeLoop")
+                        .devModeLogoTrigger()
                     VStack(alignment: .leading, spacing: 4) {
                         Text(greeting)
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                         Text(profile.name.isEmpty ? "Watch Wearer" : profile.name)
                             .font(.title2.bold())
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
                     }
                     Spacer()
-                    Button {
-                        appearanceRaw = (appearanceRaw == AppAppearance.dark.rawValue) ? AppAppearance.light.rawValue : AppAppearance.dark.rawValue
-                    } label: {
-                        Image(systemName: appearanceRaw == AppAppearance.dark.rawValue ? "sun.max.fill" : "moon.fill")
-                            .font(.title2)
-                            .foregroundStyle(LoopStyle.green)
-                    }
-                    .accessibilityLabel(appearanceRaw == AppAppearance.dark.rawValue ? "Switch to Light Mode" : "Switch to Dark Mode")
                     Button { showQuickStart = true } label: {
                         Image(systemName: "questionmark.circle.fill")
                             .font(.title2)
-                            .foregroundStyle(LoopStyle.green)
+                            .foregroundStyle(LoopStyle.accent)
+                            .frame(width: 44, height: 44)
+                            .background(LoopStyle.mint, in: Circle())
                     }
                     .accessibilityLabel("Quick Start Guide")
-                    Button { showWearerAccountSheet = true } label: {
-                        ProfileAvatar(name: profile.name.isEmpty ? "W" : profile.name)
+                    Button { showWearerSettingsSheet = true } label: {
+                        ProfileAvatar(name: profile.name.isEmpty ? "W" : profile.name, size: 46)
+                            .overlay(alignment: .bottomTrailing) {
+                                Image(systemName: "gearshape.fill")
+                                    .font(.system(size: 11, weight: .bold))
+                                    .foregroundStyle(LoopStyle.ink)
+                                    .padding(4)
+                                    .background(LoopStyle.card, in: Circle())
+                                    .offset(x: 3, y: 3)
+                            }
                     }
-                    .accessibilityLabel("Account")
+                    .frame(minWidth: 44, minHeight: 44)
+                    .accessibilityLabel("Settings and account")
+                }
+
+                if bleMonitor.isBluetoothUnavailable {
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack(spacing: 10) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .font(.title3)
+                                .foregroundStyle(.orange)
+                            Text(bleMonitor.bluetoothState == .poweredOff ? "Bluetooth is Off" : "Bluetooth Unavailable")
+                                .font(.headline)
+                        }
+                        Text("Turn on Bluetooth in iPhone Settings so LifeLoop can stay connected to your watch.")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                        Button("Open iPhone Settings") {
+                            if let url = URL(string: UIApplication.openSettingsURLString) {
+                                openURL(url)
+                            }
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(.orange)
+                        .foregroundStyle(.white)
+                    }
+                    .loopCard()
+                }
+
+                ForEach(profile.groups) { group in
+                    if let manager = profile.managers[group.id] {
+                        WearerGroupCheckInSection(
+                            manager: manager,
+                            knownDeviceIDs: Set(bleMonitor.knownDevices.map(\.id))
+                        ) { deviceID in
+                            acknowledgeCheckInFromWearer(deviceID: deviceID)
+                        }
+                    }
                 }
 
                 // Giant Emergency / Cancel Button
                 VStack(alignment: .leading, spacing: 12) {
+                    if !cancellationMessage.isEmpty {
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack(spacing: 8) {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                    .foregroundStyle(.yellow)
+                                Text("Cloud Cancellation Unconfirmed")
+                                    .font(.subheadline.bold())
+                            }
+                            Text(cancellationMessage)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Button {
+                                closeEmergency()
+                            } label: {
+                                Text("Retry Cloud Cancellation")
+                                    .font(.subheadline.bold())
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .tint(LoopStyle.emergencyRed)
+                            .foregroundStyle(.white)
+                        }
+                        .loopCard()
+                    }
+
                     Button {
                         if timer.isAlertTriggered {
                             closeEmergency()
@@ -542,33 +664,30 @@ struct ContentView: View {
                         .padding(.vertical, 20)
                     }
                     .buttonStyle(.borderedProminent)
-                    .tint(timer.isAlertTriggered ? .red : LoopStyle.green)
-                    .foregroundStyle(timer.isAlertTriggered ? .white : LoopStyle.ink)
+                    .tint(LoopStyle.emergencyRed)
+                    .foregroundStyle(.white)
                     .disabled(isClosingEmergency)
 
                     if isClosingEmergency {
                         ProgressView("Sending cancellation…")
                     }
+
+                    if profile.groups.isEmpty && !timer.isAlertTriggered {
+                        Label("No family group connected yet. Connect a group below so SOS notifies your caregivers.", systemImage: "info.circle")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
                 }
 
                 // My Watch Section (Battery, Sleep/Wake, Connection)
-                HStack {
-                    Text("My Watch")
-                        .font(.title2.bold())
-                    Spacer()
-                    Button {
-                        addDevice = true
-                    } label: {
-                        Label("Add Watch", systemImage: "plus.circle.fill")
-                            .font(.subheadline.weight(.semibold))
-                    }
-                }
+                Text("My Watch")
+                    .font(.title2.bold())
 
                 if bleMonitor.knownDevices.isEmpty {
                     VStack(spacing: 16) {
                         Image(systemName: "applewatch.radiowaves.left.and.right")
                             .font(.system(size: 48))
-                            .foregroundStyle(LoopStyle.green)
+                            .foregroundStyle(LoopStyle.accent)
                         Text("No LifeLoop Watch Connected")
                             .font(.title3.bold())
                         Text("Tap the button below to pair your LifeLoop watch over Bluetooth.")
@@ -595,35 +714,11 @@ struct ContentView: View {
                     }
                 }
 
-                // Simple Family Link Card (so wearer can link their watch to their family group)
-                Button {
-                    if profile.isSignedIn {
-                        showWearerFamilySheet = true
-                    } else {
-                        showWearerAccountSheet = true
-                    }
-                } label: {
-                    HStack(spacing: 14) {
-                        Image(systemName: "person.2.fill")
-                            .font(.title3)
-                            .foregroundStyle(LoopStyle.green)
-                            .frame(width: 44, height: 44)
-                            .background(LoopStyle.mint, in: Circle())
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(profile.groups.isEmpty ? "Connect to Family Group" : "Shared with \(profile.groups.count) Family Group\(profile.groups.count == 1 ? "" : "s")")
-                                .font(.headline)
-                                .foregroundStyle(LoopStyle.ink)
-                            Text(profile.isSignedIn ? "Tap to join a family code or share your watch." : "Sign in to share your watch with family caregivers.")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                        Image(systemName: "chevron.right")
-                            .foregroundStyle(.secondary)
-                    }
-                    .loopCard()
-                }
-                .buttonStyle(.plain)
+                WearerFamilyStatusCard(
+                    knownDeviceIDs: Set(bleMonitor.knownDevices.map(\.id)),
+                    onOpenAccount: { showWearerAccountSheet = true },
+                    onOpenFamily: { showWearerFamilySheet = true }
+                )
             }
             .padding(24)
             .frame(maxWidth: 720)
@@ -637,10 +732,36 @@ struct ContentView: View {
         let status = bleMonitor.deviceStatuses[device.id]
         let isConnected = status?.isConnected == true
         let isConnecting = status?.isConnecting == true
-        let isSleeping = status?.lifeLoopState.state == 6
+        let deviceState = status?.lifeLoopState.state ?? 0
+        let isSleeping = deviceState == 6
+        let isCheckInPending = deviceState == 5
+        let isEmergency = deviceState == 4
+        let isRecovering = deviceState == 3
         let battery = status?.lifeLoopState.battery ?? 100
         let hasBattery = status?.lastUpdated != nil
+        let isLowBattery = hasBattery && battery <= 20
         let bpm = Int(status?.lifeLoopState.bpm ?? 0)
+
+        let dotColor: Color = {
+            if isConnected {
+                if isEmergency { return LoopStyle.emergencyRed }
+                if isCheckInPending || isRecovering { return .orange }
+                if isSleeping { return .indigo }
+                return LoopStyle.accent
+            }
+            return isConnecting ? .orange : .secondary
+        }()
+
+        let statusSummary: String = {
+            if isConnected {
+                if isEmergency { return "Emergency Active" }
+                if isCheckInPending { return "Check-In Ping Active" }
+                if isRecovering { return "Recovering" }
+                if isSleeping { return "Watch Off (Sleep Mode)" }
+                return "Watch On · Connected"
+            }
+            return isConnecting ? "Connecting…" : "Offline"
+        }()
 
         VStack(alignment: .leading, spacing: 18) {
             HStack {
@@ -649,11 +770,11 @@ struct ContentView: View {
                         .font(.title3.bold())
                     HStack(spacing: 8) {
                         Circle()
-                            .fill(isConnected ? (isSleeping ? .indigo : LoopStyle.green) : (isConnecting ? .orange : .secondary))
+                            .fill(dotColor)
                             .frame(width: 10, height: 10)
-                        Text(isConnected ? (isSleeping ? "Watch Off (Sleep Mode)" : "Watch On · Connected") : (isConnecting ? "Connecting…" : "Offline"))
+                        Text(statusSummary)
                             .font(.subheadline.weight(.medium))
-                            .foregroundStyle(isConnected && isSleeping ? .indigo : .secondary)
+                            .foregroundStyle(isConnected && (isSleeping || isEmergency || isCheckInPending) ? dotColor : .secondary)
                     }
                 }
                 Spacer()
@@ -663,10 +784,42 @@ struct ContentView: View {
                     Image(systemName: "gearshape.fill")
                         .font(.title3)
                         .foregroundStyle(.secondary)
-                        .padding(10)
+                        .frame(width: 44, height: 44)
                         .background(Color(.secondarySystemBackground), in: Circle())
                 }
                 .accessibilityLabel("Device settings")
+            }
+
+            if isConnected && isSleeping {
+                Label("Fall detection is paused while Sleep Mode is on.", systemImage: "moon.zzz.fill")
+                    .font(.footnote.weight(.medium))
+                    .foregroundStyle(.indigo)
+                    .padding(12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.indigo.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
+            }
+
+            if isLowBattery {
+                Label("Watch battery is low (\(battery)%) — please charge soon.", systemImage: "battery.25")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(LoopStyle.emergencyRed)
+                    .padding(12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(LoopStyle.emergencyRed.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
+            }
+
+            if isConnected && isCheckInPending {
+                Button {
+                    acknowledgeCheckInFromWearer(deviceID: device.id)
+                } label: {
+                    Label("I’m OK — Stop Check-In Beep", systemImage: "checkmark.circle.fill")
+                        .font(.headline)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(LoopStyle.green)
+                .foregroundStyle(LoopStyle.darkInk)
             }
 
             // Large Battery & Heart Rate Display
@@ -674,10 +827,18 @@ struct ContentView: View {
                 VStack(alignment: .leading, spacing: 6) {
                     Label("Battery", systemImage: battery <= 10 ? "battery.0" : battery <= 25 ? "battery.25" : battery <= 75 ? "battery.75" : "battery.100")
                         .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(hasBattery && battery <= 15 ? .red : LoopStyle.green)
+                        .foregroundStyle(isLowBattery ? LoopStyle.emergencyRed : LoopStyle.accent)
                     Text(hasBattery ? "\(battery)%" : "—")
-                        .font(.system(size: 32, weight: .bold, design: .rounded))
-                        .foregroundStyle(hasBattery && battery <= 15 ? .red : LoopStyle.ink)
+                        .font(.system(size: wearerMetricFontSize, weight: .bold, design: .rounded))
+                        .monospacedDigit()
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.65)
+                        .foregroundStyle(isLowBattery ? LoopStyle.emergencyRed : (isConnected ? LoopStyle.ink : .secondary))
+                    if !isConnected && hasBattery {
+                        Text("Last known")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(16)
@@ -688,12 +849,21 @@ struct ContentView: View {
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.red)
                     Text(isConnected ? (isSleeping ? "Sleeping" : (bpm > 0 ? "\(bpm) BPM" : "Reading…")) : "—")
-                        .font(.system(size: 28, weight: .bold, design: .rounded))
+                        .font(.system(size: wearerMetricFontSize, weight: .bold, design: .rounded))
+                        .monospacedDigit()
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.65)
                         .foregroundStyle(LoopStyle.ink)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(16)
                 .background(LoopStyle.background, in: RoundedRectangle(cornerRadius: 16))
+            }
+
+            if let lastUpdated = status?.lastUpdated {
+                Text("Updated \(lastUpdated.formatted(date: .omitted, time: .shortened))")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             // Big Turn Watch On / Off (Sleep / Wake) Button
@@ -702,7 +872,7 @@ struct ContentView: View {
                     if isSleeping {
                         bleMonitor.sendWakeCommand(deviceID: device.id)
                     } else {
-                        bleMonitor.sendSleepCommand(deviceID: device.id)
+                        devicePendingSleep = device
                     }
                 } label: {
                     Label(
@@ -720,14 +890,17 @@ struct ContentView: View {
                 Button {
                     bleMonitor.connect(toKnown: device)
                 } label: {
-                    Label("Reconnect Watch", systemImage: "dot.radiowaves.left.and.right")
-                        .font(.headline)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
+                    Label(
+                        bleMonitor.isBluetoothUnavailable ? "Bluetooth Off" : "Reconnect Watch",
+                        systemImage: bleMonitor.isBluetoothUnavailable ? "bolt.horizontal.circle" : "dot.radiowaves.left.and.right"
+                    )
+                    .font(.headline)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
                 }
                 .buttonStyle(.bordered)
-                .tint(LoopStyle.green)
-                .disabled(isConnecting)
+                .tint(LoopStyle.accent)
+                .disabled(isConnecting || bleMonitor.isBluetoothUnavailable)
             }
         }
         .loopCard()
@@ -737,6 +910,7 @@ struct DeviceProfileSheet: View {
     let device: KnownDevice
     @ObservedObject var bleMonitor: BLEMonitor
     @Environment(\.dismiss) private var dismiss
+    @AppStorage(DevMode.storageKey) private var isDevModeEnabled = false
     @State private var deviceName: String
     @State private var isLogExpanded = false
     @State private var removeDevice = false
@@ -823,9 +997,11 @@ struct DeviceProfileSheet: View {
                 Section("Device information") {
                     telemetryRow(title: "Battery", value: status.lastUpdated == nil ? "—" : "\(status.lifeLoopState.battery)%")
                     telemetryRow(title: "BPM", value: bpmText)
-                    telemetryRow(title: "State", value: stateDescription)
-                    telemetryRow(title: "Latitude", value: coordinateText(status.lifeLoopState.latitude))
-                    telemetryRow(title: "Longitude", value: coordinateText(status.lifeLoopState.longitude))
+                    if isDevModeEnabled {
+                        telemetryRow(title: "State", value: stateDescription)
+                        telemetryRow(title: "Latitude", value: coordinateText(status.lifeLoopState.latitude))
+                        telemetryRow(title: "Longitude", value: coordinateText(status.lifeLoopState.longitude))
+                    }
                     telemetryRow(title: "Last Update", value: lastUpdatedText)
                 }
 
@@ -1072,5 +1248,171 @@ struct AddDeviceSheet: View {
                 bleMonitor.startScanning()
             }
         }
+    }
+}
+
+private struct WearerGroupCheckInSection: View {
+    @ObservedObject var manager: FamilyDeviceManager
+    let knownDeviceIDs: Set<String>
+    let onAcknowledge: (String) -> Void
+
+    private var pendingCheckIns: [CloudCheckIn] {
+        manager.activeCheckIns.values
+            .filter { checkIn in
+                checkIn.status == "PENDING" &&
+                knownDeviceIDs.contains { $0.caseInsensitiveCompare(checkIn.targetDeviceID) == .orderedSame }
+            }
+            .sorted { $0.createdAt > $1.createdAt }
+    }
+
+    var body: some View {
+        ForEach(pendingCheckIns) { checkIn in
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 10) {
+                    Image(systemName: "waveform.path.ecg")
+                        .font(.title3)
+                        .foregroundStyle(.orange)
+                    Text("Check-In Requested")
+                        .font(.headline)
+                }
+                Text("\(checkIn.initiatorName) wants to make sure you’re OK. Press your watch button or tap below.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                Button {
+                    onAcknowledge(checkIn.targetDeviceID)
+                } label: {
+                    Label("I’m OK — Confirm Check-In", systemImage: "checkmark.circle.fill")
+                        .font(.headline)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(LoopStyle.green)
+                .foregroundStyle(LoopStyle.darkInk)
+            }
+            .loopCard()
+            .overlay(
+                RoundedRectangle(cornerRadius: 22)
+                    .stroke(Color.orange.opacity(0.6), lineWidth: 1.5)
+            )
+        }
+    }
+}
+
+private struct WearerFamilyStatusCard: View {
+    @Environment(UserProfile.self) private var profile
+    let knownDeviceIDs: Set<String>
+    let onOpenAccount: () -> Void
+    let onOpenFamily: () -> Void
+
+    var body: some View {
+        Button {
+            if profile.isSignedIn {
+                onOpenFamily()
+            } else {
+                onOpenAccount()
+            }
+        } label: {
+            if !profile.isSignedIn {
+                simpleCard(
+                    title: "Connect to Family Group",
+                    subtitle: "Sign in to share your watch with family caregivers."
+                )
+            } else if profile.groups.isEmpty {
+                simpleCard(
+                    title: "Connect to Family Group",
+                    subtitle: "Tap to join a family with an invitation code."
+                )
+            } else {
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack(spacing: 12) {
+                        Image(systemName: "person.2.fill")
+                            .font(.title3)
+                            .foregroundStyle(LoopStyle.accent)
+                            .frame(width: 40, height: 40)
+                            .background(LoopStyle.mint, in: Circle())
+                        Text("Family Groups")
+                            .font(.headline)
+                            .foregroundStyle(LoopStyle.ink)
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .foregroundStyle(.secondary)
+                    }
+                    ForEach(profile.groups) { group in
+                        if let manager = profile.managers[group.id] {
+                            WearerGroupLinkRow(
+                                group: group,
+                                manager: manager,
+                                knownDeviceIDs: knownDeviceIDs
+                            )
+                        }
+                    }
+                    Text("Tap to join a group or manage watch sharing.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .loopCard()
+            }
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func simpleCard(title: String, subtitle: String) -> some View {
+        HStack(spacing: 14) {
+            Image(systemName: "person.2.fill")
+                .font(.title3)
+                .foregroundStyle(LoopStyle.accent)
+                .frame(width: 44, height: 44)
+                .background(LoopStyle.mint, in: Circle())
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.headline)
+                    .foregroundStyle(LoopStyle.ink)
+                Text(subtitle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            Image(systemName: "chevron.right")
+                .foregroundStyle(.secondary)
+        }
+        .loopCard()
+    }
+}
+
+private struct WearerGroupLinkRow: View {
+    let group: LoopGroup
+    @ObservedObject var manager: FamilyDeviceManager
+    let knownDeviceIDs: Set<String>
+
+    private var isWatchShared: Bool {
+        manager.linkedDeviceIDs.contains { linkedID in
+            knownDeviceIDs.contains { $0.caseInsensitiveCompare(linkedID) == .orderedSame }
+        }
+    }
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Text(group.name)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(LoopStyle.ink)
+            Spacer()
+            if knownDeviceIDs.isEmpty {
+                Label("No watch paired yet", systemImage: "applewatch.slash")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else if isWatchShared {
+                Label("Watch shared", systemImage: "checkmark.circle.fill")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(LoopStyle.accent)
+            } else {
+                Label("Watch not shared yet — tap to link", systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.orange)
+            }
+        }
+        .padding(.vertical, 6)
+        .padding(.horizontal, 10)
+        .background(LoopStyle.background, in: RoundedRectangle(cornerRadius: 10))
     }
 }

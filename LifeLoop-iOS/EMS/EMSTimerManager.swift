@@ -9,7 +9,8 @@ import Foundation
 import Combine
 import UIKit
 
-class EMSTimerManager: ObservableObject {
+@MainActor
+final class EMSTimerManager: ObservableObject {
     
     static let shared = EMSTimerManager()
     
@@ -54,39 +55,40 @@ class EMSTimerManager: ObservableObject {
         
         beginBackgroundCountdownTask()
         
-        //Store the message for the UI
+        // Store state before triggering alarm, notifications, or cloud dispatch callbacks
         self.triggerReason = reason
         triggerDeviceID = deviceID
-        
-        onImmediateTrigger?(reason)
-        LoopNotifications.shared.postLocalEmergencyCountdown(reason: reason)
-        
-        isCountingDown = true
         timeRemaining = 30
         callDeadline = Date().addingTimeInterval(30)
-        
         isActive = true
         isAlertTriggered = false
+        isCountingDown = true
+
         EmergencyAlarmManager.shared.startAlarm()
+        LoopNotifications.shared.postLocalEmergencyCountdown(reason: reason)
+        onImmediateTrigger?(reason)
         
         /*
          Allows for repetition of subtracting exactly one second for the countdown within the infinite loop that fires once every second
          [weak self] and guard let prevents memory leak
          */
         let newTimer = Timer(timeInterval: 1.0, repeats: true) { [weak self] _ in
-            guard let self = self else { return }
-            
-            // Whenever there is more than 0 time remaning continue to subtract 1 second until you reach 0
-            self.timeRemaining = max(0, Int(ceil((self.callDeadline ?? Date()).timeIntervalSinceNow)))
-            if self.timeRemaining == 0 {
-                self.timer?.invalidate()
-                // Keep the emergency presentation visible as it transitions to delivery status.
-                self.isAlertTriggered = true
-                self.isActive = false
-                self.isCountingDown = false
-                
-                EmergencyAlarmManager.shared.stopAlarm()
-                self.endBackgroundCountdownTask()
+            Task { @MainActor [weak self] in
+                guard let self, self.isCountingDown else { return }
+
+                // Whenever there is more than 0 time remaining continue to subtract 1 second until you reach 0
+                self.timeRemaining = max(0, Int(ceil((self.callDeadline ?? Date()).timeIntervalSinceNow)))
+                if self.timeRemaining == 0 {
+                    self.timer?.invalidate()
+                    self.timer = nil
+                    // Keep the emergency presentation visible as it transitions to delivery status.
+                    self.isAlertTriggered = true
+                    self.isActive = false
+                    self.isCountingDown = false
+
+                    EmergencyAlarmManager.shared.stopAlarm()
+                    self.endBackgroundCountdownTask()
+                }
             }
         }
         RunLoop.main.add(newTimer, forMode: .common)
@@ -100,6 +102,9 @@ class EMSTimerManager: ObservableObject {
     
     func cancelCountdown() {
         timer?.invalidate()
+        timer = nil
+        callDeadline = nil
+        triggerDeviceID = nil
         isActive = false
         timeRemaining = 30
         isAlertTriggered = false

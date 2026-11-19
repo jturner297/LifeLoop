@@ -14,83 +14,60 @@ import CoreLocation
 
 class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     // CLLocationManager is the system object that communicates with the actual antenna; made private so that no other file can interact with it and made into constant so it cannot be overwritten
-    // GLGeocoder is Apple's built in geocoder object
-    
     private let manager = CLLocationManager()
-    private let geocoder = CLGeocoder()
-    
-    // Published receives data from the class declared above, and anytime the latitude or longitude numbers change, the application with update with new coordinate data
-    
-    @Published var latitude = 0.0
-    @Published var longitude = 0.0
-    @Published var currentAddress = "Locating..."
 
-    private var lastGeocodeTime: Date?
+    private(set) var latitude = 0.0
+    private(set) var longitude = 0.0
 
-    var statusText: String {
-        currentAddress
-    }
-    
     // Init is our constructor (runs soon as class is created)
     // Requires override since NSObject contains a default empty init(), we are replacing the parent default version
     // super.init is called to allow parent class to setup first
-    
-    override init () {
+
+    override init() {
         super.init()
-        
+
         // Manager finds location and gives it to LocationManager class
-        
         manager.delegate = self
-        manager.requestWhenInUseAuthorization()
         manager.desiredAccuracy = kCLLocationAccuracyNearestTenMeters
         manager.distanceFilter = 20
-        manager.startUpdatingLocation()
+        handleAuthorization(manager.authorizationStatus)
     }
-    
-    // Triggers iOS pop that asks user for permission to gather location data, and tells the GPS chip to start pinging satellites
-    
-    func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
-        
-        // GPS could send an empty list so guard let checks the list to see if locations.last has data and if it does store it in latestLocation. If empty abort function to avoid app crashes.
-        
-        guard let latestLocation = locations.last else { return }
-        
-        // Extract numbers out of Apple object and save it into the published variables. These new numbers will be shown on the UI.
-        
-        latitude = latestLocation.coordinate.latitude
-        longitude = latestLocation.coordinate.longitude
 
-        if let lastGeocodeTime, Date().timeIntervalSince(lastGeocodeTime) < 60 {
-            return
+    private func handleAuthorization(_ status: CLAuthorizationStatus) {
+        switch status {
+        case .authorizedWhenInUse, .authorizedAlways:
+            manager.startUpdatingLocation()
+        case .notDetermined:
+            manager.requestWhenInUseAuthorization()
+        case .denied, .restricted:
+            manager.stopUpdatingLocation()
+        @unknown default:
+            manager.stopUpdatingLocation()
         }
-        lastGeocodeTime = Date()
-        
-        geocoder.reverseGeocodeLocation(latestLocation) {[weak self] placemarks, error in
-                // Block runs asynchronously when Apple's servers respond
-            
-            // Unwraps self and if manager is destroyed then abort
-            guard let self = self else {return}
-                //Check for server errors or lack of internet
-                if error != nil {
-                    self.currentAddress = "Address unavailable"
-                    return
-                }
-                // Grab first result from server
-                guard let placemark = placemarks?.first else { return }
-                
-                // Use placemark to build standard us address
-                let streetNum = placemark.subThoroughfare ?? ""
-                let streetName = placemark.thoroughfare ?? ""
-                let city = placemark.locality ?? ""
-                let state = placemark.administrativeArea ?? ""
-                let zip = placemark.postalCode ?? ""
-                
-                self.currentAddress = "\(streetNum) \(streetName) \n \(city), \(state) \(zip)"
-            }
-        
     }
-    
-    
-    
-    
+
+    func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+        handleAuthorization(manager.authorizationStatus)
+    }
+
+    func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
+        // GPS could send an empty list so guard let checks the list to see if locations.last has data and if it does store it in latestLocation. If empty abort function to avoid app crashes.
+        guard let latestLocation = locations.last else { return }
+        let lat = latestLocation.coordinate.latitude
+        let lon = latestLocation.coordinate.longitude
+
+        if Thread.isMainThread {
+            latitude = lat
+            longitude = lon
+        } else {
+            DispatchQueue.main.async { [weak self] in
+                self?.latitude = lat
+                self?.longitude = lon
+            }
+        }
+    }
+
+    func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
+        print("Location update error: \(error.localizedDescription)")
+    }
 }

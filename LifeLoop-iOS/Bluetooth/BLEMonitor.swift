@@ -20,6 +20,7 @@ final class BLEMonitor: NSObject, ObservableObject {
     private var rxCharacteristics: [String: CBCharacteristic] = [:]
     
     @Published private(set) var bluetoothStateText = "Starting Bluetooth…"
+    @Published private(set) var bluetoothState: CBManagerState = .unknown
     @Published private(set) var isScanning = false
     @Published private(set) var discoveredPeripherals: [DiscoveredPeripheral] = []
     @Published private(set) var knownDevices: [KnownDevice] = []
@@ -44,13 +45,18 @@ final class BLEMonitor: NSObject, ObservableObject {
     private var pendingSOS: [String: Date] = [:]
     private var pendingPowerCommands: [String: (command: String, deadline: Date)] = [:]
     private let deviceStore = DeviceStore()
+    private var incomingPingObserver: NSObjectProtocol?
     
-    // TIMING FIX: Prevents stale telemetry from overriding manual commands
-    private var lastCommandSentAt: Date = Date.distantPast
+    // TIMING FIX: Prevents duplicate cancel commands without blocking cancel right after SOS/sleep/wake
+    private var lastCancelSentAt: Date = Date.distantPast
     private var lastImmediateAlertAt: Date?
     
     var isConnected: Bool {
         deviceStatuses.values.contains { $0.isConnected }
+    }
+
+    var isBluetoothUnavailable: Bool {
+        bluetoothState == .poweredOff || bluetoothState == .unauthorized || bluetoothState == .unsupported
     }
     
     var connectedDeviceName: String? {
@@ -72,7 +78,7 @@ final class BLEMonitor: NSObject, ObservableObject {
             queue: .main,
             options: [CBCentralManagerOptionRestoreIdentifierKey: "LifeLoopCentralManager"]
         )
-        NotificationCenter.default.addObserver(
+        incomingPingObserver = NotificationCenter.default.addObserver(
             forName: .lifeLoopIncomingPing,
             object: nil,
             queue: .main
@@ -80,6 +86,12 @@ final class BLEMonitor: NSObject, ObservableObject {
             guard let self,
                   let targetDeviceID = notification.userInfo?["targetDeviceID"] as? String else { return }
             self.sendPingCommand(deviceID: targetDeviceID)
+        }
+    }
+
+    deinit {
+        if let incomingPingObserver {
+            NotificationCenter.default.removeObserver(incomingPingObserver)
         }
     }
     
@@ -293,7 +305,7 @@ final class BLEMonitor: NSObject, ObservableObject {
                     // also contains an abnormal heart-rate reading.
                     self.warningDevices.insert(deviceID)
                 } else if let warningReason, !appCancellationPending, self.warningDevices.insert(deviceID).inserted {
-                    DispatchQueue.main.async {
+                    Task { @MainActor in
                         EMSTimerManager.shared.startCountdown(reason: warningReason, deviceID: deviceID)
                     }
                     self.sendSOSCommand(deviceID: deviceID)
@@ -339,8 +351,8 @@ final class BLEMonitor: NSObject, ObservableObject {
 
     func sendCancelCommand() {
         let now = Date()
-        guard now.timeIntervalSince(lastCommandSentAt) >= 0.25 else { return }
-        lastCommandSentAt = now // Stamps the time the button was pressed
+        guard now.timeIntervalSince(lastCancelSentAt) >= 0.25 else { return }
+        lastCancelSentAt = now // Stamps the time the cancel button was pressed
         let targets = Set(knownDevices.map(\.id)).union(connectedPeripherals.keys)
         for id in targets {
             awaitingAppCancellation.insert(id)
@@ -389,7 +401,7 @@ final class BLEMonitor: NSObject, ObservableObject {
     }
 
     func sendSOSCommand(deviceID: String? = nil) {
-        lastCommandSentAt = Date()
+        lastCancelSentAt = .distantPast
         let targets: [String]
         if let deviceID {
             targets = [deviceID]
@@ -479,15 +491,36 @@ final class BLEMonitor: NSObject, ObservableObject {
         log("PING written to device \(deviceID); waiting for its check-in state")
     }
 
+    func acknowledgeCheckInFromApp(deviceID: String) {
+        let resolvedID = knownDevices.first(where: {
+            $0.id.caseInsensitiveCompare(deviceID) == .orderedSame
+        })?.id ?? deviceID
+        awaitingAppCancellation.insert(resolvedID)
+        pingSentAt.removeValue(forKey: resolvedID)
+        pendingPings.removeValue(forKey: resolvedID)
+        pingActiveDevices.remove(resolvedID)
+        pendingCancels[resolvedID] = Date().addingTimeInterval(15)
+        flushPendingCancel(deviceID: resolvedID)
+
+        if deviceStatuses[resolvedID]?.lifeLoopState.state == 5 {
+            updateStatus(for: resolvedID) { status in
+                status.lifeLoopState.state = 0
+            }
+            DispatchQueue.main.async {
+                self.pingAckSequence += 1
+            }
+        }
+        log("Check-in PING acknowledged from app")
+        maintainConnections()
+    }
+
     func sendSleepCommand(deviceID: String) {
-        lastCommandSentAt = Date()
         pendingPowerCommands[deviceID] = (command: "SLEEP", deadline: Date().addingTimeInterval(15))
         flushPendingPowerCommand(deviceID: deviceID)
         maintainConnections()
     }
 
     func sendWakeCommand(deviceID: String) {
-        lastCommandSentAt = Date()
         pendingPowerCommands[deviceID] = (command: "WAKE", deadline: Date().addingTimeInterval(15))
         flushPendingPowerCommand(deviceID: deviceID)
         maintainConnections()
@@ -604,6 +637,7 @@ final class BLEMonitor: NSObject, ObservableObject {
 
 extension BLEMonitor: CBCentralManagerDelegate {
     func centralManagerDidUpdateState(_ central: CBCentralManager) {
+        bluetoothState = central.state
         if central.state != .poweredOn {
             pingSentAt.removeAll()
             pingActiveDevices.removeAll()

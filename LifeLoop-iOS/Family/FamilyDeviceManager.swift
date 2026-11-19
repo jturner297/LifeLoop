@@ -47,6 +47,7 @@ final class FamilyDeviceManager: ObservableObject {
     private var activeAlertSequence: AmplifyAsyncThrowingSequence<GraphQLSubscriptionEvent<CloudAlert>>?
     private var handledCheckInIDs: Set<String> = []
     private var linkedDeviceKeys: Set<String> = []
+    nonisolated(unsafe) private var pingAckObserver: NSObjectProtocol?
 
     init(apiClient: FamilyAPIClient = .shared, groupCode: String? = nil) {
         self.apiClient = apiClient
@@ -67,7 +68,7 @@ final class FamilyDeviceManager: ObservableObject {
                 handledCheckInIDs.insert(checkIn.checkInID)
             }
         }
-        NotificationCenter.default.addObserver(
+        pingAckObserver = NotificationCenter.default.addObserver(
             forName: .lifeLoopPingAcknowledged,
             object: nil,
             queue: .main
@@ -77,6 +78,12 @@ final class FamilyDeviceManager: ObservableObject {
             Task { @MainActor in
                 await self.acknowledgeCheckInIfNeeded(for: deviceID)
             }
+        }
+    }
+
+    deinit {
+        if let pingAckObserver {
+            NotificationCenter.default.removeObserver(pingAckObserver)
         }
     }
 

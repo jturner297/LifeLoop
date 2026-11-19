@@ -29,6 +29,14 @@ enum AppAppearance: String, CaseIterable, Identifiable {
 enum LoopStyle {
     static let green = Color(red: 0.22, green: 1.0, blue: 0.08)
     static let darkInk = Color(red: 0.10, green: 0.16, blue: 0.14)
+    static let emergencyRed = Color(red: 0.80, green: 0.10, blue: 0.15)
+
+    /// High-contrast green for foreground text and icons in both Light and Dark Mode.
+    static let accent = Color(UIColor { traits in
+        traits.userInterfaceStyle == .dark
+            ? UIColor(red: 0.22, green: 1.0, blue: 0.08, alpha: 1.0)
+            : UIColor(red: 0.06, green: 0.48, blue: 0.16, alpha: 1.0)
+    })
 
     static let mint = Color(UIColor { traits in
         traits.userInterfaceStyle == .dark
@@ -55,6 +63,68 @@ enum LoopStyle {
     })
 }
 
+enum DevMode {
+    static let storageKey = "devMode.enabled"
+    static let requiredTaps = 7
+    static let tapResetInterval: TimeInterval = 2.5
+}
+
+private struct DevModeLogoTriggerModifier: ViewModifier {
+    @AppStorage(DevMode.storageKey) private var isDevModeEnabled = false
+    @State private var tapCount = 0
+    @State private var lastTapDate = Date.distantPast
+    @State private var showStatusAlert = false
+
+    func body(content: Content) -> some View {
+        content
+            .overlay(alignment: .bottomTrailing) {
+                if isDevModeEnabled {
+                    Text("DEV")
+                        .font(.system(size: 8, weight: .bold, design: .monospaced))
+                        .foregroundStyle(LoopStyle.darkInk)
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 2)
+                        .background(LoopStyle.green, in: Capsule())
+                        .offset(x: 4, y: 4)
+                        .accessibilityHidden(true)
+                }
+            }
+            .contentShape(Rectangle())
+            .onTapGesture {
+                handleTap()
+            }
+            .alert(
+                isDevModeEnabled ? "Developer Mode Enabled" : "Developer Mode Disabled",
+                isPresented: $showStatusAlert
+            ) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(
+                    isDevModeEnabled
+                        ? "Hidden diagnostic tools (low-level telemetry, cloud sync status, and test notifications) are now visible."
+                        : "Diagnostic tools are hidden again."
+                )
+            }
+    }
+
+    private func handleTap() {
+        let now = Date()
+        if now.timeIntervalSince(lastTapDate) > DevMode.tapResetInterval {
+            tapCount = 1
+        } else {
+            tapCount += 1
+        }
+        lastTapDate = now
+
+        if tapCount >= DevMode.requiredTaps {
+            tapCount = 0
+            isDevModeEnabled.toggle()
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
+            showStatusAlert = true
+        }
+    }
+}
+
 extension View {
     func loopCard() -> some View {
         padding(18).frame(maxWidth: .infinity, alignment: .leading)
@@ -63,6 +133,9 @@ extension View {
     func loopPage() -> some View {
         scrollContentBackground(.hidden).background(LoopStyle.background)
             .foregroundStyle(LoopStyle.ink).tint(LoopStyle.green)
+    }
+    func devModeLogoTrigger() -> some View {
+        modifier(DevModeLogoTriggerModifier())
     }
 }
 

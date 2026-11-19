@@ -5,6 +5,7 @@ import AudioToolbox
 /// The EmergencyAlarmManager is a centralized singleton responsible for handling
 /// critical audio and haptic feedback during a detected LifeLoop emergency (State 4).
 /// It bypasses standard iOS silent mode restrictions to ensure the user is alerted.
+@MainActor
 final class EmergencyAlarmManager {
     // Shared instance allows the timer manager to trigger the alarm globally
     // without needing to pass this object through the SwiftUI view hierarchy.
@@ -13,11 +14,41 @@ final class EmergencyAlarmManager {
     // Core audio component used to play the looping siren MP3.
     private var audioPlayer: AVAudioPlayer?
     private var hapticTimer: Timer?
+    private var isAlarmActive = false
     private let impactGenerator = UIImpactFeedbackGenerator(style: .heavy)
+    nonisolated(unsafe) private var interruptionObserver: NSObjectProtocol?
     
     private init() {
         // Pre-load the audio file into memory ahead of time so it fires instantly when startAlarm() is called.
         setupAudioSession()
+        interruptionObserver = NotificationCenter.default.addObserver(
+            forName: AVAudioSession.interruptionNotification,
+            object: AVAudioSession.sharedInstance(),
+            queue: .main
+        ) { [weak self] notification in
+            let typeValue = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt
+            let type = typeValue.flatMap(AVAudioSession.InterruptionType.init(rawValue:))
+            Task { @MainActor [weak self] in
+                guard let self, type == .ended, self.isAlarmActive else { return }
+                do {
+                    let session = AVAudioSession.sharedInstance()
+                    try session.setCategory(.playback, mode: .default, options: [.duckOthers])
+                    try session.setActive(true)
+                } catch {
+                    print("Failed to reactivate audio session after interruption: \(error.localizedDescription)")
+                }
+                if self.audioPlayer == nil {
+                    self.setupAudioSession()
+                }
+                self.audioPlayer?.play()
+            }
+        }
+    }
+
+    deinit {
+        if let interruptionObserver {
+            NotificationCenter.default.removeObserver(interruptionObserver)
+        }
     }
     
     // MARK: - Setup
@@ -54,6 +85,10 @@ final class EmergencyAlarmManager {
     
     /// Triggers the emergency siren and begins the looping haptic pulse.
     func startAlarm() {
+        isAlarmActive = true
+        if audioPlayer == nil {
+            setupAudioSession()
+        }
         do {
             let session = AVAudioSession.sharedInstance()
             try session.setCategory(.playback, mode: .default, options: [.duckOthers])
@@ -66,15 +101,20 @@ final class EmergencyAlarmManager {
         impactGenerator.prepare()
         
         hapticTimer?.invalidate()
-        // Fires a heavy system impact every 0.6 seconds to match the visual strobe.
-        hapticTimer = Timer.scheduledTimer(withTimeInterval: 0.6, repeats: true) { [weak self] _ in
-            guard let self = self else { return }
-            self.fireHapticPulse()
+        // Fires a heavy system impact every 0.6 seconds across all run loop modes so scrolling doesn't pause haptics.
+        let timer = Timer(timeInterval: 0.6, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self, self.isAlarmActive else { return }
+                self.fireHapticPulse()
+            }
         }
+        RunLoop.main.add(timer, forMode: .common)
+        hapticTimer = timer
     }
     
     /// Instantly halts all audio, deactivates ducking, and resets the track position for the next event.
     func stopAlarm() {
+        isAlarmActive = false
         audioPlayer?.stop()
         audioPlayer?.currentTime = 0
         hapticTimer?.invalidate()

@@ -55,6 +55,7 @@ struct SettingsView: View {
     @State private var name = ""
     @State private var showAccountSetup = false
     @AppStorage("account.skipped") private var accountSkipped = false
+    @AppStorage(DevMode.storageKey) private var isDevModeEnabled = false
 
     var body: some View {
         @Bindable var profile = profile
@@ -105,6 +106,14 @@ struct SettingsView: View {
             }
             Section("Notifications") {
                 NavigationLink("Phone notifications") { NotificationsView() }
+            }
+            if isDevModeEnabled {
+                Section("Developer") {
+                    Toggle("Developer Mode", isOn: $isDevModeEnabled)
+                    Text("Shows low-level device telemetry, cloud sync status footers, and test notifications. Tap the top-left LifeLoop logo \(DevMode.requiredTaps) times to toggle.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
             }
         }.loopPage().navigationTitle("Settings")
             .onAppear { name = profile.name }
@@ -249,6 +258,7 @@ struct NotificationsView: View {
     @State private var requesting = false
     @AppStorage("notifications.statusUpdates") private var statusUpdates = true
     @AppStorage("notifications.sound") private var sound = true
+    @AppStorage(DevMode.storageKey) private var isDevModeEnabled = false
 
     var body: some View {
         Form {
@@ -271,18 +281,20 @@ struct NotificationsView: View {
                         if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
                     }
                 }
-                Button("Send a test notification") {
-                    Task {
-                        let content = UNMutableNotificationContent()
-                        content.title = "LifeLoop notifications are ready"
-                        content.body = "Family alerts will appear here while LifeLoop is syncing."
-                        if sound { content.sound = .default }
-                        do {
-                            try await UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: "lifeloop.notification-check", content: content, trigger: nil))
-                            errorMessage = nil
-                        } catch { errorMessage = error.localizedDescription }
-                    }
-                }.disabled(!enabled || authorization == .denied)
+                if isDevModeEnabled {
+                    Button("Send a test notification") {
+                        Task {
+                            let content = UNMutableNotificationContent()
+                            content.title = "LifeLoop notifications are ready"
+                            content.body = "Family alerts will appear here while LifeLoop is syncing."
+                            if sound { content.sound = .default }
+                            do {
+                                try await UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: "lifeloop.notification-check", content: content, trigger: nil))
+                                errorMessage = nil
+                            } catch { errorMessage = error.localizedDescription }
+                        }
+                    }.disabled(!enabled || authorization == .denied)
+                }
                 if let errorMessage { Text(errorMessage).foregroundStyle(.red) }
             } header: { Text("Stay informed") }
         }.loopPage().navigationTitle("Notifications")
@@ -316,6 +328,108 @@ struct NotificationsView: View {
         } catch {
             enabled = false
             errorMessage = error.localizedDescription
+        }
+    }
+}
+
+struct WearerSettingsSheet: View {
+    @Environment(UserProfile.self) private var profile
+    @EnvironmentObject private var bleMonitor: BLEMonitor
+    @Environment(\.dismiss) private var dismiss
+    @AppStorage("app.appearance") private var appearanceRaw = AppAppearance.light.rawValue
+    @AppStorage("com.lifeloop.family.locationSharingEnabled") private var shareLocation = true
+    @AppStorage("profile.shareDeviceInformation") private var shareDeviceInformation = true
+    @AppStorage(DevMode.storageKey) private var isDevModeEnabled = false
+
+    let onAddWatch: () -> Void
+
+    @State private var name = ""
+    @State private var showAccountSetup = false
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Account") {
+                    Label(
+                        profile.isSignedIn ? "Signed in (Watch Wearer)" : "Using Wearer Mode without an account",
+                        systemImage: profile.isSignedIn ? "checkmark.circle.fill" : "person.crop.circle"
+                    )
+                    Button(profile.isSignedIn ? "Manage account" : "Sign in or create an account") {
+                        showAccountSetup = true
+                    }
+                }
+
+                Section("My name") {
+                    TextField("Your name", text: $name)
+                        .textContentType(.name)
+                    Button("Save name") {
+                        profile.name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+                    }
+                    .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || name == profile.name)
+                }
+
+                Section("Appearance") {
+                    Picker("Theme", selection: $appearanceRaw) {
+                        ForEach(AppAppearance.allCases) { option in
+                            Text(option.title).tag(option.rawValue)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                }
+
+                Section {
+                    Toggle("Share location", isOn: $shareLocation)
+                    Toggle("Share device information", isOn: $shareDeviceInformation)
+                    ForEach(profile.groups) { group in
+                        if let manager = profile.managers[group.id] {
+                            NavigationLink(group.name) {
+                                GroupSharingView(manager: manager)
+                            }
+                        }
+                    }
+                } header: {
+                    Text("Privacy & sharing")
+                } footer: {
+                    Text("Controls what your watch shares with your connected family groups.")
+                }
+
+                Section("Notifications") {
+                    NavigationLink("Phone notifications") {
+                        NotificationsView()
+                    }
+                }
+
+                Section("Watch") {
+                    Button {
+                        dismiss()
+                        onAddWatch()
+                    } label: {
+                        Label(bleMonitor.knownDevices.isEmpty ? "Pair a watch" : "Pair another watch", systemImage: "plus.circle")
+                    }
+                }
+
+                if isDevModeEnabled {
+                    Section("Developer") {
+                        Toggle("Developer Mode", isOn: $isDevModeEnabled)
+                        Text("Shows low-level device telemetry, cloud sync status footers, and test notifications. Tap the top-left LifeLoop logo \(DevMode.requiredTaps) times to toggle.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .loopPage()
+            .navigationTitle("Settings")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+            .onAppear { name = profile.name }
+            .sheet(isPresented: $showAccountSetup) {
+                AccountSetupView { showAccountSetup = false }
+                    .environment(profile)
+            }
         }
     }
 }
